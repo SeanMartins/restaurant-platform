@@ -40,3 +40,4 @@ restaurant-platform-c6f2c-firebase-adminsdk-fbsvc-89cfaac63c.json
 *.json 
 !package.json 
 !tsconfig.json 
+.vercel
