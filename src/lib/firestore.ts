@@ -115,13 +115,12 @@ export function ascoltaOrdiniReparto(
 ) {
   const q = query(
     paths.ordini(restaurantId),
-    where('stato', 'in', ['ricevuto', 'in_preparazione']),
     orderBy('createdAt')
   )
   return onSnapshot(q, (snap) => {
     const tutti = snap.docs.map(d => d.data() as Ordine)
-    // Filtra solo le righe del reparto e solo gli ordini che hanno righe per quel reparto
     const filtrati = tutti
+      .filter(o => o.stato !== 'servito')
       .map(o => ({
         ...o,
         righe: o.righe.filter(r => r.reparto === reparto && r.stato !== 'servito')
@@ -130,7 +129,6 @@ export function ascoltaOrdiniReparto(
     callback(filtrati)
   })
 }
-
 // Listener realtime tutti gli ordini per la cassa
 export function ascoltaOrdiniCassa(
   restaurantId: string,
