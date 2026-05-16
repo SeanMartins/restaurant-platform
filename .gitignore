@@ -35,3 +35,5 @@ next-env.d.ts
 
 # QR codes generati
 public/qr-codes/*.png
+service-account.json 
+restaurant-platform-c6f2c-firebase-adminsdk-fbsvc-89cfaac63c.json 
