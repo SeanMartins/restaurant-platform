@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+    function getUser() {
+      return get(/databases/$(database)/documents/utenti/$(request.auth.uid)).data;
+    }
+    function isSuperAdmin() {
+      return isAuth() && getUser().role == 'superadmin';
+    }
+    function isManagerOf(restaurantId) {
+      return isAuth()
+        && getUser().role == 'manager'
+        && getUser().restaurantId == restaurantId;
+    }
+    function isOperatoreOf(restaurantId) {
+      return isAuth()
+        && getUser().restaurantId == restaurantId
+        && getUser().role in ['cucina','pizzeria','bar','pasticceria','antipasti','cassa'];
+    }
+    function isMemberOf(restaurantId) {
+      return isManagerOf(restaurantId) || isOperatoreOf(restaurantId);
+    }
+
+    // ── Utenti globali ───────────────────────────────────────────────────
+    match /utenti/{uid} {
+      allow read: if isAuth() && (request.auth.uid == uid || isSuperAdmin());
+      allow write: if isSuperAdmin();
+    }
+
+    // ── Ristoranti ───────────────────────────────────────────────────────
+    match /ristoranti/{restaurantId} {
+      // Solo superadmin crea/elimina ristoranti
+      allow read:   if isSuperAdmin() || isMemberOf(restaurantId);
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin() || isManagerOf(restaurantId);
+      allow delete: if isSuperAdmin();
+
+      // ── Menu: categorie ───────────────────────────────────────────────
+      match /categorie/{docId} {
+        allow read:  if true; // clienti possono leggere il menu
+        allow write: if isSuperAdmin() || isManagerOf(restaurantId);
+      }
+
+      // ── Menu: piatti ──────────────────────────────────────────────────
+      match /piatti/{docId} {
+        allow read:  if true; // clienti possono leggere il menu
+        allow write: if isSuperAdmin() || isManagerOf(restaurantId);
+      }
+
+      // ── Tavoli ────────────────────────────────────────────────────────
+      match /tavoli/{docId} {
+        allow read:  if true; // clienti devono leggere info tavolo via QR
+        allow write: if isSuperAdmin() || isMemberOf(restaurantId);
+      }
+
+      // ── Ordini ────────────────────────────────────────────────────────
+      match /ordini/{docId} {
+        allow read:  if isSuperAdmin() || isMemberOf(restaurantId);
+        allow create: if true; // clienti creano ordini dal QR (no auth)
+        allow update: if isSuperAdmin() || isMemberOf(restaurantId);
+        allow delete: if isSuperAdmin() || isManagerOf(restaurantId);
+      }
+
+      // ── Utenti del ristorante ─────────────────────────────────────────
+      match /utenti/{docId} {
+        allow read:  if isSuperAdmin() || isManagerOf(restaurantId);
+        allow write: if isSuperAdmin() || isManagerOf(restaurantId);
+      }
+    }
+  }
+}

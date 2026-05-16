@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-primary:   #E63946;
+  --brand-secondary: #457B9D;
+  --brand-bg:        #F1FAEE;
+  --brand-text:      #1D3557;
+  --brand-font:      'Inter', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: #f8f9fa;
+  color: #1a1a1a;
+}
+
+/* Scrollbar sottile */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #f1f1f1; }
+::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
