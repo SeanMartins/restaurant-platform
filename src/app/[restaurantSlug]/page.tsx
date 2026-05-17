@@ -18,18 +18,19 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
   const tavoloId  = searchParams.get('tavolo')
   const tavoloNum = searchParams.get('n')
 
-  const [ristorante, setRistorante]     = useState<Ristorante | null>(null)
-  const [categorie, setCategorie]       = useState<any[]>([])
-  const [piatti, setPiatti]             = useState<Piatto[]>([])
-  const [tavolo, setTavolo]             = useState<Tavolo | null>(null)
-  const [loading, setLoading]           = useState(true)
+  const [ristorante, setRistorante]   = useState<Ristorante | null>(null)
+  const [categorie, setCategorie]     = useState<any[]>([])
+  const [piatti, setPiatti]           = useState<Piatto[]>([])
+  const [tavolo, setTavolo]           = useState<Tavolo | null>(null)
+  const [loading, setLoading]         = useState(true)
   const [categoriaAttiva, setCategoriaAttiva] = useState('')
-  const [carrello, setCarrello]         = useState<CarrelloItem[]>([])
+  const [carrello, setCarrello]       = useState<CarrelloItem[]>([])
   const [mostraCarrello, setMostraCarrello] = useState(false)
-  const [inviando, setInviando]         = useState(false)
-  const [vista, setVista]               = useState<'menu' | 'ordini'>('menu')
+  const [inviando, setInviando]       = useState(false)
+  const [vista, setVista]             = useState<'menu' | 'ordini'>('menu')
   const [ordiniInviati, setOrdiniInviati] = useState<OrdineInviato[]>([])
   const timerRef = useRef<any>(null)
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   useEffect(() => { caricaDati() }, [params.restaurantSlug])
 
@@ -48,6 +49,7 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
     setLoading(false)
   }
 
+  // Applica colori brand
   useEffect(() => {
     if (!ristorante) return
     document.documentElement.style.setProperty('--brand-primary',   ristorante.colori.primario)
@@ -57,7 +59,7 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
     document.documentElement.style.setProperty('--brand-font',      ristorante.font || 'Inter')
   }, [ristorante])
 
-  // Countdown timer
+  // Countdown timer annullamento
   useEffect(() => {
     if (ordiniInviati.length === 0) return
     timerRef.current = setInterval(() => {
@@ -80,6 +82,12 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
     )
     return () => unsubs.forEach(u => u())
   }, [ristorante, ordiniInviati.length])
+
+  const scrollToCategoria = (catId: string) => {
+    setCategoriaAttiva(catId)
+    const el = sectionRefs.current[catId]
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const aggiungi = (p: Piatto) => {
     setCarrello(prev => {
@@ -121,7 +129,7 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
       setCarrello([])
       setMostraCarrello(false)
       setVista('ordini')
-      toast.success('Ordine inviato! 🍽️')
+      toast.success('Ordine inviato!')
     } catch { toast.error('Errore nell\'invio') } finally { setInviando(false) }
   }
 
@@ -136,10 +144,10 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
 
   const statoLabel = (stato: string) => {
     const map: Record<string, { label: string; color: string }> = {
-      ricevuto:        { label: '🆕 Ricevuto',        color: 'bg-blue-100 text-blue-700' },
-      in_preparazione: { label: '👨‍🍳 In preparazione', color: 'bg-yellow-100 text-yellow-700' },
-      pronto:          { label: '✅ Pronto!',          color: 'bg-green-100 text-green-700' },
-      servito:         { label: '🍽️ Servito',          color: 'bg-gray-100 text-gray-500' },
+      ricevuto:        { label: 'Ricevuto',        color: 'bg-blue-100 text-blue-700' },
+      in_preparazione: { label: 'In preparazione', color: 'bg-yellow-100 text-yellow-700' },
+      pronto:          { label: 'Pronto!',          color: 'bg-green-100 text-green-700' },
+      servito:         { label: 'Servito',          color: 'bg-gray-100 text-gray-500' },
     }
     return map[stato] || { label: stato, color: 'bg-gray-100 text-gray-500' }
   }
@@ -156,48 +164,58 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
     </div>
   )
 
-  const piattiCat = piatti.filter(p => p.categoriaId === categoriaAttiva)
-
   return (
-    <div className="min-h-screen pb-32" style={{ background: 'var(--brand-bg)', color: 'var(--brand-text)', fontFamily: 'var(--brand-font)' }}>
+    <div className="min-h-screen pb-32" style={{ background: '#f5f5f5', fontFamily: 'var(--brand-font)' }}>
 
-      {/* Header sticky */}
-      <div className="sticky top-0 z-10 shadow-sm" style={{ background: 'var(--brand-bg)' }}>
-        <div className="px-4 pt-5 pb-2">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ background: 'var(--brand-primary)' }}>
-                {ristorante.nome.charAt(0)}
-              </div>
-              <div>
-                <h1 className="font-bold text-lg">{ristorante.nome}</h1>
-                {tavolo && <p className="text-xs opacity-60">{tavolo.nome || `Tavolo ${tavolo.numero}`}</p>}
-              </div>
+      {/* HEADER GRANDE */}
+      <div className="sticky top-0 z-20" style={{ background: 'var(--brand-primary)' }}>
+        <div className="px-5 pt-8 pb-0">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h1 className="text-3xl font-bold text-white leading-tight">{ristorante.nome}</h1>
+              {tavolo && (
+                <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.70)' }}>
+                  {tavolo.nome || `Tavolo ${tavolo.numero}`} · {tavolo.posti} posti
+                </p>
+              )}
             </div>
-            <div className="flex gap-1 rounded-xl p-1" style={{ background: 'rgba(0,0,0,0.08)' }}>
-              {(['menu', 'ordini'] as const).map(v => (
-                <button key={v} onClick={() => setVista(v)}
-                  className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all relative capitalize"
-                  style={vista === v ? { background: 'var(--brand-primary)', color: '#fff' } : { opacity: 0.6 }}
-                >
-                  {v === 'menu' ? 'Menu' : 'Ordini'}
-                  {v === 'ordini' && ordiniInviati.length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                      {ordiniInviati.length}
-                    </span>
-                  )}
-                </button>
-              ))}
+            <div className="flex flex-col items-end gap-2">
+              {/* Avatar */}
+              <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold"
+                style={{ background: 'rgba(255,255,255,0.2)', color: '#fff' }}>
+                {ristorante.nome.charAt(0).toUpperCase()}
+              </div>
+              {/* Tab menu/ordini */}
+              <div className="flex gap-1 rounded-full p-1" style={{ background: 'rgba(255,255,255,0.15)' }}>
+                {(['menu', 'ordini'] as const).map(v => (
+                  <button key={v} onClick={() => setVista(v)}
+                    className="px-3 py-1 rounded-full text-xs font-semibold transition-all relative capitalize"
+                    style={vista === v
+                      ? { background: '#fff', color: 'var(--brand-primary)' }
+                      : { color: 'rgba(255,255,255,0.85)' }
+                    }
+                  >
+                    {v === 'menu' ? 'Menu' : 'Ordini'}
+                    {v === 'ordini' && ordiniInviati.length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                        {ordiniInviati.length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+
+          {/* Categorie pill - solo nella vista menu */}
           {vista === 'menu' && (
-            <div className="flex gap-2 pb-2 overflow-x-auto">
+            <div className="flex gap-2 pb-3 overflow-x-auto mt-3" style={{ scrollbarWidth: 'none' }}>
               {categorie.map((c: any) => (
-                <button key={c.id} onClick={() => setCategoriaAttiva(c.id)}
-                  className="px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap"
+                <button key={c.id} onClick={() => scrollToCategoria(c.id)}
+                  className="px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all"
                   style={categoriaAttiva === c.id
-                    ? { background: 'var(--brand-primary)', color: '#fff' }
-                    : { border: '1px solid var(--brand-primary)', opacity: 0.7 }
+                    ? { background: '#fff', color: 'var(--brand-primary)' }
+                    : { background: 'rgba(255,255,255,0.2)', color: '#fff' }
                   }
                 >{c.nome}</button>
               ))}
@@ -206,43 +224,74 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
         </div>
       </div>
 
-      {/* MENU */}
+      {/* VISTA MENU — sezioni separate */}
       {vista === 'menu' && (
-        <div className="px-4 pt-3 flex flex-col gap-3">
-          {piattiCat.length === 0
-            ? <div className="text-center py-16 opacity-50"><p className="text-4xl mb-2">🍽️</p><p>Nessun piatto</p></div>
-            : piattiCat.map(p => {
-              const inCarrello = carrello.find(i => i.piatto.id === p.id)
-              return (
-                <div key={p.id} className="rounded-2xl p-4 shadow-sm flex items-center justify-between" style={{ background: 'rgba(255,255,255,0.85)' }}>
-                  <div className="flex-1 mr-4">
-                    <h3 className="font-semibold">{p.nome}</h3>
-                    {p.descrizione && <p className="text-sm opacity-60 mt-0.5">{p.descrizione}</p>}
-                    <p className="font-bold mt-1" style={{ color: 'var(--brand-primary)' }}>€ {p.prezzo.toFixed(2)}</p>
-                  </div>
-                  {inCarrello ? (
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => rimuovi(p.id)} className="w-8 h-8 rounded-full text-white font-bold flex items-center justify-center" style={{ background: 'var(--brand-primary)' }}>−</button>
-                      <span className="font-bold w-4 text-center">{inCarrello.quantita}</span>
-                      <button onClick={() => aggiungi(p)} className="w-8 h-8 rounded-full text-white font-bold flex items-center justify-center" style={{ background: 'var(--brand-primary)' }}>+</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => aggiungi(p)} className="w-9 h-9 rounded-full text-white font-bold text-xl shadow-md flex items-center justify-center" style={{ background: 'var(--brand-primary)' }}>+</button>
-                  )}
+        <div className="px-4 pt-6 flex flex-col gap-8">
+          {categorie.map((cat: any) => {
+            const piattiCat = piatti.filter(p => p.categoriaId === cat.id)
+            if (piattiCat.length === 0) return null
+            return (
+              <div key={cat.id} ref={el => { sectionRefs.current[cat.id] = el }}>
+                {/* Titolo sezione con linea colorata */}
+                <div className="flex items-center mb-4 pb-3" style={{ borderBottom: `2px solid var(--brand-primary)` }}>
+                  <h2 className="text-xl font-bold text-gray-800">{cat.nome}</h2>
+                  <span className="ml-2 text-sm text-gray-400 font-normal">({piattiCat.length})</span>
                 </div>
-              )
-            })
-          }
+
+                {/* Card piatti */}
+                <div className="flex flex-col gap-3">
+                  {piattiCat.map(p => {
+                    const inCarrello = carrello.find(i => i.piatto.id === p.id)
+                    return (
+                      <div key={p.id} className="bg-white rounded-2xl p-4 flex items-center justify-between"
+                        style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
+                        <div className="flex-1 mr-4">
+                          <h3 className="font-semibold text-gray-900 text-base">{p.nome}</h3>
+                          {p.descrizione && (
+                            <p className="text-sm text-gray-500 mt-0.5 leading-snug">{p.descrizione}</p>
+                          )}
+                          <p className="text-base font-bold mt-2" style={{ color: 'var(--brand-primary)' }}>
+                            € {p.prezzo.toFixed(2)}
+                          </p>
+                        </div>
+
+                        {inCarrello ? (
+                          <div className="flex items-center gap-3 flex-shrink-0">
+                            <button onClick={() => rimuovi(p.id)}
+                              className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-lg"
+                              style={{ background: 'var(--brand-primary)' }}>−</button>
+                            <span className="font-bold text-base w-5 text-center text-gray-800">{inCarrello.quantita}</span>
+                            <button onClick={() => aggiungi(p)}
+                              className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-lg"
+                              style={{ background: 'var(--brand-primary)' }}>+</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => aggiungi(p)}
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-2xl flex-shrink-0"
+                            style={{ background: 'var(--brand-primary)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>+</button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 
-      {/* ORDINI */}
+      {/* VISTA ORDINI */}
       {vista === 'ordini' && (
-        <div className="px-4 pt-4 flex flex-col gap-4">
+        <div className="px-4 pt-6 flex flex-col gap-4">
           {ordiniInviati.length === 0 ? (
-            <div className="text-center py-20 opacity-50">
-              <p className="text-5xl mb-3">🍽️</p><p>Nessun ordine ancora</p>
-              <button onClick={() => setVista('menu')} className="mt-4 px-6 py-2 rounded-xl text-white text-sm" style={{ background: 'var(--brand-primary)' }}>Vai al menu</button>
+            <div className="text-center py-20">
+              <p className="text-5xl mb-3">🍽️</p>
+              <p className="text-gray-500 mb-4">Nessun ordine ancora</p>
+              <button onClick={() => setVista('menu')}
+                className="px-6 py-3 rounded-2xl text-white font-semibold"
+                style={{ background: 'var(--brand-primary)' }}>
+                Vai al menu
+              </button>
             </div>
           ) : (
             <>
@@ -250,44 +299,52 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
                 const s = statoLabel(ordine.stato)
                 const puoAnnullare = ordine.tempoRimasto > 0 && ordine.stato === 'ricevuto'
                 return (
-                  <div key={ordine.id} className="bg-white rounded-2xl p-5 shadow-sm">
+                  <div key={ordine.id} className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
                     <div className="flex items-center justify-between mb-4">
-                      <span className={`text-xs px-3 py-1 rounded-full font-medium ${s.color}`}>{s.label}</span>
-                      <span className="text-xs text-gray-400">{new Date(ordine.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className={`text-xs px-3 py-1.5 rounded-full font-semibold ${s.color}`}>{s.label}</span>
+                      <span className="text-xs text-gray-400">
+                        {new Date(ordine.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
+
                     <div className="flex flex-col gap-2 mb-4">
                       {ordine.righe.map((riga, idx) => {
                         const rs = statoLabel(riga.stato)
                         return (
                           <div key={idx} className="flex items-center justify-between py-2 border-b border-gray-50">
-                            <div className="flex items-center gap-2">
-                              <span className="w-6 h-6 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ background: 'var(--brand-primary)' }}>{riga.quantita}</span>
-                              <span className="text-sm font-medium">{riga.nome}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="w-6 h-6 rounded-full text-xs font-bold text-white flex items-center justify-center"
+                                style={{ background: 'var(--brand-primary)' }}>{riga.quantita}</span>
+                              <span className="text-sm font-medium text-gray-800">{riga.nome}</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className={`text-xs px-2 py-0.5 rounded-full ${rs.color}`}>{rs.label}</span>
-                              <span className="text-sm text-gray-500">€ {(riga.prezzo * riga.quantita).toFixed(2)}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${rs.color}`}>{rs.label}</span>
+                              <span className="text-sm text-gray-500 font-medium">€ {(riga.prezzo * riga.quantita).toFixed(2)}</span>
                             </div>
                           </div>
                         )
                       })}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold" style={{ color: 'var(--brand-primary)' }}>Totale: € {ordine.totale.toFixed(2)}</span>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="font-bold text-gray-800">Totale: <span style={{ color: 'var(--brand-primary)' }}>€ {ordine.totale.toFixed(2)}</span></span>
                       {puoAnnullare && (
-                        <button onClick={() => annullaOrdine(ordine.id)} className="flex items-center gap-2 text-sm text-red-500 border border-red-200 px-3 py-1.5 rounded-xl hover:bg-red-50">
-                          ✕ Annulla
+                        <button onClick={() => annullaOrdine(ordine.id)}
+                          className="flex items-center gap-2 text-sm text-red-500 border border-red-200 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-colors">
+                          Annulla
                           <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full font-mono">
                             {Math.floor(ordine.tempoRimasto / 60)}:{String(ordine.tempoRimasto % 60).padStart(2, '0')}
                           </span>
                         </button>
                       )}
-                      {!puoAnnullare && ordine.stato === 'ricevuto' && <span className="text-xs text-gray-400">Tempo scaduto</span>}
                     </div>
                   </div>
                 )
               })}
-              <button onClick={() => setVista('menu')} className="w-full py-3 rounded-xl border-2 border-dashed text-sm font-medium opacity-60 hover:opacity-100" style={{ borderColor: 'var(--brand-primary)', color: 'var(--brand-primary)' }}>
+
+              <button onClick={() => setVista('menu')}
+                className="w-full py-3 rounded-2xl border-2 border-dashed text-sm font-semibold transition-opacity"
+                style={{ borderColor: 'var(--brand-primary)', color: 'var(--brand-primary)' }}>
                 + Aggiungi altri piatti
               </button>
             </>
@@ -295,51 +352,67 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
         </div>
       )}
 
-      {/* Carrello bottom bar */}
+      {/* BARRA CARRELLO */}
       {carrello.length > 0 && !mostraCarrello && (
         <div className="fixed bottom-6 left-4 right-4 z-40">
-          <button onClick={() => setMostraCarrello(true)} className="w-full py-4 rounded-2xl text-white font-bold shadow-xl flex items-center justify-between px-6" style={{ background: 'var(--brand-primary)' }}>
-            <span className="bg-white bg-opacity-30 rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold">{quantita}</span>
-            <span>Vedi ordine</span>
+          <button onClick={() => setMostraCarrello(true)}
+            className="w-full py-4 rounded-2xl text-white font-bold shadow-xl flex items-center justify-between px-6"
+            style={{ background: 'var(--brand-primary)' }}>
+            <span className="rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold"
+              style={{ background: 'rgba(255,255,255,0.25)' }}>{quantita}</span>
+            <span className="text-base">Vedi ordine</span>
             <span>€ {totale.toFixed(2)}</span>
           </button>
         </div>
       )}
 
-      {/* Modale carrello */}
+      {/* MODALE CARRELLO */}
       {mostraCarrello && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMostraCarrello(false)} />
-          <div className="relative bg-white rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto">
+          <div className="relative bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="font-bold text-gray-800 text-lg">Il tuo ordine</h2>
-              <button onClick={() => setMostraCarrello(false)} className="text-gray-400 text-2xl">×</button>
+              <h2 className="font-bold text-gray-800 text-xl">Il tuo ordine</h2>
+              <button onClick={() => setMostraCarrello(false)} className="text-gray-400 text-2xl leading-none">×</button>
             </div>
-            {tavolo && <div className="bg-gray-50 rounded-xl px-4 py-2 mb-4 text-sm text-gray-600">📍 {tavolo.nome || `Tavolo ${tavolo.numero}`}</div>}
-            <div className="flex flex-col gap-3 mb-6">
+
+            {tavolo && (
+              <div className="rounded-xl px-4 py-2 mb-5 text-sm text-gray-600 flex items-center gap-2"
+                style={{ background: '#f5f5f5' }}>
+                Tavolo {tavolo.numero} · {tavolo.posti} posti
+              </div>
+            )}
+
+            <div className="flex flex-col gap-4 mb-6">
               {carrello.map(item => (
                 <div key={item.piatto.id} className="flex items-center justify-between">
                   <div className="flex-1">
-                    <p className="font-medium text-gray-800">{item.piatto.nome}</p>
+                    <p className="font-semibold text-gray-800">{item.piatto.nome}</p>
                     <p className="text-sm text-gray-400">€ {item.piatto.prezzo.toFixed(2)} cad.</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <button onClick={() => rimuovi(item.piatto.id)} className="w-7 h-7 rounded-full text-white text-sm flex items-center justify-center" style={{ background: 'var(--brand-primary)' }}>−</button>
-                    <span className="font-bold w-4 text-center">{item.quantita}</span>
-                    <button onClick={() => aggiungi(item.piatto)} className="w-7 h-7 rounded-full text-white text-sm flex items-center justify-center" style={{ background: 'var(--brand-primary)' }}>+</button>
-                    <span className="font-semibold text-gray-800 w-16 text-right">€ {(item.piatto.prezzo * item.quantita).toFixed(2)}</span>
+                    <button onClick={() => rimuovi(item.piatto.id)}
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-lg"
+                      style={{ background: 'var(--brand-primary)' }}>−</button>
+                    <span className="font-bold w-5 text-center text-gray-800">{item.quantita}</span>
+                    <button onClick={() => aggiungi(item.piatto)}
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-lg"
+                      style={{ background: 'var(--brand-primary)' }}>+</button>
+                    <span className="font-bold text-gray-800 w-16 text-right">€ {(item.piatto.prezzo * item.quantita).toFixed(2)}</span>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="border-t border-gray-100 pt-4 mb-6">
-              <div className="flex justify-between font-bold text-lg">
-                <span>Totale</span>
-                <span style={{ color: 'var(--brand-primary)' }}>€ {totale.toFixed(2)}</span>
-              </div>
+
+            <div className="border-t border-gray-100 pt-4 mb-6 flex justify-between items-center">
+              <span className="font-bold text-gray-800 text-lg">Totale</span>
+              <span className="font-bold text-xl" style={{ color: 'var(--brand-primary)' }}>€ {totale.toFixed(2)}</span>
             </div>
-            <button onClick={inviaOrdine} disabled={inviando} className="w-full py-4 rounded-2xl text-white font-bold text-lg shadow-lg disabled:opacity-50" style={{ background: 'var(--brand-primary)' }}>
-              {inviando ? 'Invio in corso...' : '🍽️ Invia ordine alla cucina'}
+
+            <button onClick={inviaOrdine} disabled={inviando}
+              className="w-full py-4 rounded-2xl text-white font-bold text-lg disabled:opacity-50"
+              style={{ background: 'var(--brand-primary)' }}>
+              {inviando ? 'Invio in corso...' : 'Invia ordine alla cucina'}
             </button>
           </div>
         </div>
