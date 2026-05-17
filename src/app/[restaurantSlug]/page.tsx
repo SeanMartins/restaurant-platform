@@ -49,16 +49,6 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
     setLoading(false)
   }
 
-  // Applica colori brand
-  useEffect(() => {
-    if (!ristorante) return
-    document.documentElement.style.setProperty('--brand-primary',   ristorante.colori.primario)
-    document.documentElement.style.setProperty('--brand-secondary', ristorante.colori.secondario)
-    document.documentElement.style.setProperty('--brand-bg',        ristorante.colori.sfondo)
-    document.documentElement.style.setProperty('--brand-text',      ristorante.colori.testo)
-    document.documentElement.style.setProperty('--brand-font',      ristorante.font || 'Inter')
-  }, [ristorante])
-
   // Countdown timer annullamento
   useEffect(() => {
     if (ordiniInviati.length === 0) return
@@ -153,45 +143,52 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
   }
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--brand-bg)' }}>
-      <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--brand-primary)' }} />
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#f5f5f5' }}>
+      <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#E63946' }} />
     </div>
   )
 
   if (!ristorante) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center"><p className="text-5xl mb-4">🍽️</p><p className="text-gray-500">Ristorante non trovato</p></div>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#f5f5f5' }}>
+      <div className="text-center">
+        <p className="text-5xl mb-4">🍽️</p>
+        <p className="text-gray-500">Ristorante non trovato</p>
+      </div>
     </div>
   )
 
+  // Colori brand presi direttamente da Firebase
+  const brandColor  = ristorante.colori.primario   || '#E63946'
+  const brandBg     = ristorante.colori.sfondo      || '#f5f5f5'
+  const brandText   = ristorante.colori.testo       || '#1D3557'
+  const brandFont   = ristorante.font               || 'Inter'
+
   return (
-    <div className="min-h-screen pb-32" style={{ background: '#f5f5f5', fontFamily: 'var(--brand-font)' }}>
+    <div className="min-h-screen pb-32" style={{ background: brandBg, fontFamily: brandFont, color: brandText }}>
 
       {/* HEADER GRANDE */}
-      <div className="sticky top-0 z-20" style={{ background: 'var(--brand-primary)' }}>
+      <div className="sticky top-0 z-20" style={{ background: brandColor }}>
         <div className="px-5 pt-8 pb-0">
           <div className="flex items-center justify-between mb-2">
             <div>
               <h1 className="text-3xl font-bold text-white leading-tight">{ristorante.nome}</h1>
               {tavolo && (
-                <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.70)' }}>
+                <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.75)' }}>
                   {tavolo.nome || `Tavolo ${tavolo.numero}`} · {tavolo.posti} posti
                 </p>
               )}
             </div>
             <div className="flex flex-col items-end gap-2">
-              {/* Avatar */}
               <div className="w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold"
                 style={{ background: 'rgba(255,255,255,0.2)', color: '#fff' }}>
                 {ristorante.nome.charAt(0).toUpperCase()}
               </div>
-              {/* Tab menu/ordini */}
               <div className="flex gap-1 rounded-full p-1" style={{ background: 'rgba(255,255,255,0.15)' }}>
                 {(['menu', 'ordini'] as const).map(v => (
                   <button key={v} onClick={() => setVista(v)}
                     className="px-3 py-1 rounded-full text-xs font-semibold transition-all relative capitalize"
                     style={vista === v
-                      ? { background: '#fff', color: 'var(--brand-primary)' }
+                      ? { background: '#fff', color: brandColor }
                       : { color: 'rgba(255,255,255,0.85)' }
                     }
                   >
@@ -207,14 +204,14 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
             </div>
           </div>
 
-          {/* Categorie pill - solo nella vista menu */}
+          {/* Categorie pill */}
           {vista === 'menu' && (
             <div className="flex gap-2 pb-3 overflow-x-auto mt-3" style={{ scrollbarWidth: 'none' }}>
               {categorie.map((c: any) => (
                 <button key={c.id} onClick={() => scrollToCategoria(c.id)}
                   className="px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all"
                   style={categoriaAttiva === c.id
-                    ? { background: '#fff', color: 'var(--brand-primary)' }
+                    ? { background: '#fff', color: brandColor }
                     : { background: 'rgba(255,255,255,0.2)', color: '#fff' }
                   }
                 >{c.nome}</button>
@@ -224,7 +221,7 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
         </div>
       </div>
 
-      {/* VISTA MENU — sezioni separate */}
+      {/* VISTA MENU */}
       {vista === 'menu' && (
         <div className="px-4 pt-6 flex flex-col gap-8">
           {categorie.map((cat: any) => {
@@ -232,13 +229,10 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
             if (piattiCat.length === 0) return null
             return (
               <div key={cat.id} ref={el => { sectionRefs.current[cat.id] = el }}>
-                {/* Titolo sezione con linea colorata */}
-                <div className="flex items-center mb-4 pb-3" style={{ borderBottom: `2px solid var(--brand-primary)` }}>
-                  <h2 className="text-xl font-bold text-gray-800">{cat.nome}</h2>
+                <div className="flex items-center mb-4 pb-3" style={{ borderBottom: `2px solid ${brandColor}` }}>
+                  <h2 className="text-xl font-bold" style={{ color: brandText }}>{cat.nome}</h2>
                   <span className="ml-2 text-sm text-gray-400 font-normal">({piattiCat.length})</span>
                 </div>
-
-                {/* Card piatti */}
                 <div className="flex flex-col gap-3">
                   {piattiCat.map(p => {
                     const inCarrello = carrello.find(i => i.piatto.id === p.id)
@@ -250,25 +244,24 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
                           {p.descrizione && (
                             <p className="text-sm text-gray-500 mt-0.5 leading-snug">{p.descrizione}</p>
                           )}
-                          <p className="text-base font-bold mt-2" style={{ color: 'var(--brand-primary)' }}>
+                          <p className="text-base font-bold mt-2" style={{ color: brandColor }}>
                             € {p.prezzo.toFixed(2)}
                           </p>
                         </div>
-
                         {inCarrello ? (
                           <div className="flex items-center gap-3 flex-shrink-0">
                             <button onClick={() => rimuovi(p.id)}
                               className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-lg"
-                              style={{ background: 'var(--brand-primary)' }}>−</button>
+                              style={{ background: brandColor }}>−</button>
                             <span className="font-bold text-base w-5 text-center text-gray-800">{inCarrello.quantita}</span>
                             <button onClick={() => aggiungi(p)}
                               className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-lg"
-                              style={{ background: 'var(--brand-primary)' }}>+</button>
+                              style={{ background: brandColor }}>+</button>
                           </div>
                         ) : (
                           <button onClick={() => aggiungi(p)}
                             className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-2xl flex-shrink-0"
-                            style={{ background: 'var(--brand-primary)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>+</button>
+                            style={{ background: brandColor, boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>+</button>
                         )}
                       </div>
                     )
@@ -289,7 +282,7 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
               <p className="text-gray-500 mb-4">Nessun ordine ancora</p>
               <button onClick={() => setVista('menu')}
                 className="px-6 py-3 rounded-2xl text-white font-semibold"
-                style={{ background: 'var(--brand-primary)' }}>
+                style={{ background: brandColor }}>
                 Vai al menu
               </button>
             </div>
@@ -299,14 +292,14 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
                 const s = statoLabel(ordine.stato)
                 const puoAnnullare = ordine.tempoRimasto > 0 && ordine.stato === 'ricevuto'
                 return (
-                  <div key={ordine.id} className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
+                  <div key={ordine.id} className="bg-white rounded-2xl p-5"
+                    style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
                     <div className="flex items-center justify-between mb-4">
                       <span className={`text-xs px-3 py-1.5 rounded-full font-semibold ${s.color}`}>{s.label}</span>
                       <span className="text-xs text-gray-400">
                         {new Date(ordine.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
-
                     <div className="flex flex-col gap-2 mb-4">
                       {ordine.righe.map((riga, idx) => {
                         const rs = statoLabel(riga.stato)
@@ -314,7 +307,7 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
                           <div key={idx} className="flex items-center justify-between py-2 border-b border-gray-50">
                             <div className="flex items-center gap-3">
                               <span className="w-6 h-6 rounded-full text-xs font-bold text-white flex items-center justify-center"
-                                style={{ background: 'var(--brand-primary)' }}>{riga.quantita}</span>
+                                style={{ background: brandColor }}>{riga.quantita}</span>
                               <span className="text-sm font-medium text-gray-800">{riga.nome}</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -325,9 +318,10 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
                         )
                       })}
                     </div>
-
                     <div className="flex items-center justify-between pt-2">
-                      <span className="font-bold text-gray-800">Totale: <span style={{ color: 'var(--brand-primary)' }}>€ {ordine.totale.toFixed(2)}</span></span>
+                      <span className="font-bold text-gray-800">
+                        Totale: <span style={{ color: brandColor }}>€ {ordine.totale.toFixed(2)}</span>
+                      </span>
                       {puoAnnullare && (
                         <button onClick={() => annullaOrdine(ordine.id)}
                           className="flex items-center gap-2 text-sm text-red-500 border border-red-200 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-colors">
@@ -341,10 +335,9 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
                   </div>
                 )
               })}
-
               <button onClick={() => setVista('menu')}
-                className="w-full py-3 rounded-2xl border-2 border-dashed text-sm font-semibold transition-opacity"
-                style={{ borderColor: 'var(--brand-primary)', color: 'var(--brand-primary)' }}>
+                className="w-full py-3 rounded-2xl border-2 border-dashed text-sm font-semibold"
+                style={{ borderColor: brandColor, color: brandColor }}>
                 + Aggiungi altri piatti
               </button>
             </>
@@ -357,7 +350,7 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
         <div className="fixed bottom-6 left-4 right-4 z-40">
           <button onClick={() => setMostraCarrello(true)}
             className="w-full py-4 rounded-2xl text-white font-bold shadow-xl flex items-center justify-between px-6"
-            style={{ background: 'var(--brand-primary)' }}>
+            style={{ background: brandColor }}>
             <span className="rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold"
               style={{ background: 'rgba(255,255,255,0.25)' }}>{quantita}</span>
             <span className="text-base">Vedi ordine</span>
@@ -375,14 +368,11 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
               <h2 className="font-bold text-gray-800 text-xl">Il tuo ordine</h2>
               <button onClick={() => setMostraCarrello(false)} className="text-gray-400 text-2xl leading-none">×</button>
             </div>
-
             {tavolo && (
-              <div className="rounded-xl px-4 py-2 mb-5 text-sm text-gray-600 flex items-center gap-2"
-                style={{ background: '#f5f5f5' }}>
+              <div className="rounded-xl px-4 py-2 mb-5 text-sm text-gray-600" style={{ background: '#f5f5f5' }}>
                 Tavolo {tavolo.numero} · {tavolo.posti} posti
               </div>
             )}
-
             <div className="flex flex-col gap-4 mb-6">
               {carrello.map(item => (
                 <div key={item.piatto.id} className="flex items-center justify-between">
@@ -393,25 +383,23 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
                   <div className="flex items-center gap-3">
                     <button onClick={() => rimuovi(item.piatto.id)}
                       className="w-8 h-8 rounded-full flex items-center justify-center text-white text-lg"
-                      style={{ background: 'var(--brand-primary)' }}>−</button>
+                      style={{ background: brandColor }}>−</button>
                     <span className="font-bold w-5 text-center text-gray-800">{item.quantita}</span>
                     <button onClick={() => aggiungi(item.piatto)}
                       className="w-8 h-8 rounded-full flex items-center justify-center text-white text-lg"
-                      style={{ background: 'var(--brand-primary)' }}>+</button>
+                      style={{ background: brandColor }}>+</button>
                     <span className="font-bold text-gray-800 w-16 text-right">€ {(item.piatto.prezzo * item.quantita).toFixed(2)}</span>
                   </div>
                 </div>
               ))}
             </div>
-
             <div className="border-t border-gray-100 pt-4 mb-6 flex justify-between items-center">
               <span className="font-bold text-gray-800 text-lg">Totale</span>
-              <span className="font-bold text-xl" style={{ color: 'var(--brand-primary)' }}>€ {totale.toFixed(2)}</span>
+              <span className="font-bold text-xl" style={{ color: brandColor }}>€ {totale.toFixed(2)}</span>
             </div>
-
             <button onClick={inviaOrdine} disabled={inviando}
               className="w-full py-4 rounded-2xl text-white font-bold text-lg disabled:opacity-50"
-              style={{ background: 'var(--brand-primary)' }}>
+              style={{ background: brandColor }}>
               {inviando ? 'Invio in corso...' : 'Invia ordine alla cucina'}
             </button>
           </div>
