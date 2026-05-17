@@ -6,12 +6,12 @@ import { getFirestore } from 'firebase-admin/firestore'
 
 function getAdminApp() {
   if (getApps().length) return getApps()[0]
+  const projectId   = process.env.FIREBASE_ADMIN_PROJECT_ID
+  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL
+  const privateKey  = process.env.FIREBASE_ADMIN_PRIVATE_KEY
+  if (!projectId || !clientEmail || !privateKey) throw new Error('Firebase Admin env vars mancanti')
   return initializeApp({
-    credential: cert({
-      projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID!,
-      clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL!,
-      privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY!.replace(/\\n/g, '\n'),
-    }),
+    credential: cert({ projectId, clientEmail, privateKey: privateKey.replace(/\\n/g, '\n') }),
   })
 }
 
@@ -20,7 +20,6 @@ export async function POST(req: NextRequest) {
     const { restaurantId, password, reparto } = await req.json()
     const adminDb = getFirestore(getAdminApp())
 
-    // Leggi config accesso rapido
     const snap = await adminDb
       .collection('ristoranti').doc(restaurantId)
       .collection('config').doc('accesso-rapido')
@@ -31,25 +30,18 @@ export async function POST(req: NextRequest) {
     }
 
     const config = snap.data()!
-    console.log('Config password:', config.password, 'Tipo:', typeof config.password)
-console.log('Password ricevuta:', password, 'Tipo:', typeof password)
-const passwordCorretta = String(config.password) === String(password)
-console.log('Risultato:', passwordCorretta)
+    const passwordCorretta = String(config.password) === String(password)
 
     if (!passwordCorretta) {
       return NextResponse.json({ success: false, error: 'Password errata' }, { status: 401 })
     }
 
-    // Leggi info ristorante
     const ristoranteSnap = await adminDb.collection('ristoranti').doc(restaurantId).get()
     const ristorante = ristoranteSnap.data()
 
     return NextResponse.json({
-      success: true,
-      reparto,
-      restaurantId,
+      success: true, reparto, restaurantId,
       restaurantNome: ristorante?.nome || '',
-      restaurantColori: ristorante?.colori || {},
     })
   } catch (err: any) {
     console.error('ERRORE ACCESSO RAPIDO:', err)
