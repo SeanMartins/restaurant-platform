@@ -273,6 +273,15 @@ export default function AdminPage() {
                       className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400"/>
                   </div>
                   <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Slug URL <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-normal">🔒 Non modificabile</span></label>
+                    <div className="flex items-center border border-gray-100 rounded-xl bg-gray-50">
+                      <span className="px-3 py-3 text-gray-400 text-sm border-r border-gray-100">/</span>
+                      <span className="px-3 py-3 text-gray-500 text-sm font-mono flex-1">{ristoranteAttivo.slug}</span>
+                      <span className="px-3 text-gray-300">🔒</span>
+                    </div>
+                    <p className="text-xs text-amber-600 mt-1">⚠️ Lo slug non può essere modificato — i QR code dei tavoli smetterebbero di funzionare</p>
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Indirizzo</label>
                     <input value={ristoranteAttivo.indirizzo || ''}
                       onChange={e => setRistoranteAttivo({ ...ristoranteAttivo, indirizzo: e.target.value })}
