@@ -31,7 +31,10 @@ export async function POST(req: NextRequest) {
     }
 
     const config = snap.data()!
-    const passwordCorretta = String(config.password) === String(password)
+    console.log('Config password:', config.password, 'Tipo:', typeof config.password)
+console.log('Password ricevuta:', password, 'Tipo:', typeof password)
+const passwordCorretta = String(config.password) === String(password)
+console.log('Risultato:', passwordCorretta)
 
     if (!passwordCorretta) {
       return NextResponse.json({ success: false, error: 'Password errata' }, { status: 401 })
