@@ -9,8 +9,9 @@ import TavoliManager from '@/components/manager/TavoliManager'
 import GraficaManager from '@/components/manager/GraficaManager'
 import OperatoriManager from '@/components/manager/OperatoriManager'
 import StatisticheManager from '@/components/manager/StatisticheManager'
+import PagamentiManager from '@/components/manager/PagamentiManager'
 
-type Sezione = 'statistiche' | 'menu' | 'tavoli' | 'grafica' | 'operatori'
+type Sezione = 'statistiche' | 'menu' | 'tavoli' | 'grafica' | 'operatori' | 'pagamenti'
 
 export default function DashboardPage() {
   const { appUser, loading, logout } = useAuth()
@@ -49,6 +50,7 @@ export default function DashboardPage() {
     { id: 'menu',        label: 'Menu',         emoji: '📋' },
     { id: 'tavoli',      label: 'Tavoli & QR',  emoji: '🪑' },
     { id: 'grafica',     label: 'Grafica',       emoji: '🎨' },
+    { id: 'pagamenti',   label: 'Pagamenti',     emoji: '💳' },
     { id: 'operatori',   label: 'Operatori',     emoji: '👥' },
   ] as const
 
@@ -101,6 +103,7 @@ export default function DashboardPage() {
         {sezione === 'menu'        && <MenuManager ristorante={ristorante} />}
         {sezione === 'tavoli'      && <TavoliManager ristorante={ristorante} />}
         {sezione === 'grafica'     && <GraficaManager ristorante={ristorante} onAggiorna={setRistorante} />}
+        {sezione === 'pagamenti'   && <PagamentiManager ristorante={ristorante} />}
         {sezione === 'operatori'   && <OperatoriManager ristorante={ristorante} />}
       </div>
     </div>
