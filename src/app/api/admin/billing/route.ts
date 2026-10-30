@@ -1,10 +1,10 @@
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
 import { getAdminApp } from '@/lib/firebase-admin'
 import { leggiBilling } from '@/lib/billing'
+import { getChiamante, isSuperAdmin } from '@/lib/auth-server'
 import type { BillingRistorante } from '@/types'
 
 // Gestione manuale della fatturazione (es. piloti gratuiti di 3 mesi).
@@ -14,17 +14,7 @@ const PIANI = ['base', 'pro']
 const STATI = ['attivo', 'scaduto', 'cancellato']
 
 async function verificaSuperAdmin(req: NextRequest) {
-  const authHeader = req.headers.get('authorization') || ''
-  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-  if (!idToken) return false
-  try {
-    // checkRevoked: un superadmin disabilitato perde subito l'accesso
-    const { uid } = await getAuth(getAdminApp()).verifyIdToken(idToken, true)
-    const utente = await getFirestore(getAdminApp()).collection('utenti').doc(uid).get()
-    return utente.data()?.role === 'superadmin'
-  } catch {
-    return false
-  }
+  return isSuperAdmin((await getChiamante(req))?.utente)
 }
 
 function dataValida(s: unknown): s is string {

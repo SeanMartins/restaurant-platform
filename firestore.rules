@@ -125,14 +125,16 @@ service cloud.firestore {
 
       // ── Config (accesso rapido, pagamenti, billing) ────────────────────
       // "pagamenti" contiene solo flag pubblici (quali metodi sono attivi) —
-      // il menu cliente lo legge senza auth. Le chiavi segrete vivono in
-      // "pagamenti-secret", leggibile solo dal manager (mai dal cliente).
+      // il menu cliente lo legge senza auth.
+      // "pagamenti-secret" (chiavi Stripe/PayPal) non è accessibile dal client:
+      // si legge mascherato e si scrive solo tramite /api/pagamenti/segreti.
       // "accesso-rapido" contiene solo l'hash del PIN e lo scrive solo il server
       // (/api/accesso-rapido/config), così non può tornare in chiaro.
       // "billing" (piano, abbonamento, ID Stripe) lo scrive solo il server.
       match /config/{docId} {
-        allow read:  if docId == 'pagamenti' || isSuperAdmin() || isManagerOf(restaurantId);
-        allow write: if !(docId in ['billing', 'accesso-rapido'])
+        allow read:  if docId == 'pagamenti'
+          || (docId != 'pagamenti-secret' && (isSuperAdmin() || isManagerOf(restaurantId)));
+        allow write: if !(docId in ['billing', 'accesso-rapido', 'pagamenti-secret'])
           && (isSuperAdmin() || isManagerOf(restaurantId));
       }
     }

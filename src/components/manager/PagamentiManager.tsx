@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { db, auth } from '@/lib/firebase'
 import type { Ristorante } from '@/types'
 import toast from 'react-hot-toast'
 
@@ -21,8 +21,29 @@ const defaultConfig: ConfigPagamenti = {
   pagaInCassa: { abilitato: true },
 }
 
+// Versioni mascherate (es. "sk_live_…1234") delle chiavi segrete già salvate:
+// le chiavi vere non tornano mai al browser
+interface SegretiMascherati {
+  stripeSecretKey: string | null
+  stripeWebhookSecret: string | null
+  paypalClientSecret: string | null
+}
+
+async function chiamaApiSegreti(restaurantId: string, body?: object): Promise<SegretiMascherati> {
+  const idToken = await auth.currentUser?.getIdToken()
+  const res = await fetch(body ? '/api/pagamenti/segreti' : `/api/pagamenti/segreti?restaurantId=${encodeURIComponent(restaurantId)}`, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    ...(body ? { body: JSON.stringify({ restaurantId, ...body }) } : {}),
+  })
+  const dati = await res.json()
+  if (!dati.success) throw new Error(dati.error)
+  return dati.segreti
+}
+
 export default function PagamentiManager({ ristorante }: { ristorante: Ristorante }) {
   const [config, setConfig]   = useState<ConfigPagamenti>(defaultConfig)
+  const [segretiSalvati, setSegretiSalvati] = useState<SegretiMascherati | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving]   = useState(false)
   const [mostraChiavi, setMostraChiavi] = useState<Record<string, boolean>>({})
@@ -31,19 +52,20 @@ export default function PagamentiManager({ ristorante }: { ristorante: Ristorant
 
   const caricaConfig = async () => {
     try {
-      const [pubSnap, segSnap] = await Promise.all([
+      const [pubSnap, segreti] = await Promise.all([
         getDoc(doc(db, 'ristoranti', ristorante.id, 'config', 'pagamenti')),
-        getDoc(doc(db, 'ristoranti', ristorante.id, 'config', 'pagamenti-secret')),
+        chiamaApiSegreti(ristorante.id),
       ])
       const pub = pubSnap.exists() ? pubSnap.data() : {}
-      const seg = segSnap.exists() ? segSnap.data() : {}
+      // I campi segreti restano vuoti: contengono solo un eventuale nuovo valore
       setConfig({
         abilitaPagamentiOnline: pub.abilitaPagamentiOnline ?? defaultConfig.abilitaPagamentiOnline,
         pagaInCassa: { ...defaultConfig.pagaInCassa, ...pub.pagaInCassa },
-        stripe: { ...defaultConfig.stripe, ...pub.stripe, ...seg.stripe },
-        paypal: { ...defaultConfig.paypal, ...pub.paypal, ...seg.paypal },
+        stripe: { ...defaultConfig.stripe, ...pub.stripe, secretKey: '', webhookSecret: '' },
+        paypal: { ...defaultConfig.paypal, ...pub.paypal, clientSecret: '' },
         satispay: { ...defaultConfig.satispay, ...pub.satispay },
       })
+      setSegretiSalvati(segreti)
     } catch (err) { console.error(err) }
     finally { setLoading(false) }
   }
@@ -59,17 +81,24 @@ export default function PagamentiManager({ ristorante }: { ristorante: Ristorant
         paypal:   { abilitato: config.paypal.abilitato, clientId: config.paypal.clientId },
         satispay: config.satispay,
       }
-      // "pagamenti-secret" (solo manager, mai esposto al cliente): chiavi segrete
-      const segreto = {
-        stripe: { secretKey: config.stripe.secretKey, webhookSecret: config.stripe.webhookSecret },
-        paypal: { clientSecret: config.paypal.clientSecret },
-      }
-      await Promise.all([
+      // Chiavi segrete: solo tramite server (config/pagamenti-secret non è
+      // accessibile dal client); un campo vuoto lascia la chiave già salvata
+      const [, segreti] = await Promise.all([
         setDoc(doc(db, 'ristoranti', ristorante.id, 'config', 'pagamenti'), pubblico),
-        setDoc(doc(db, 'ristoranti', ristorante.id, 'config', 'pagamenti-secret'), segreto),
+        chiamaApiSegreti(ristorante.id, {
+          stripeSecretKey: config.stripe.secretKey,
+          stripeWebhookSecret: config.stripe.webhookSecret,
+          paypalClientSecret: config.paypal.clientSecret,
+        }),
       ])
+      setSegretiSalvati(segreti)
+      setConfig(c => ({
+        ...c,
+        stripe: { ...c.stripe, secretKey: '', webhookSecret: '' },
+        paypal: { ...c.paypal, clientSecret: '' },
+      }))
       toast.success('Impostazioni pagamenti salvate!')
-    } catch { toast.error('Errore nel salvataggio') }
+    } catch (err: any) { toast.error(err.message || 'Errore nel salvataggio') }
     finally { setSaving(false) }
   }
 
@@ -187,7 +216,7 @@ export default function PagamentiManager({ ristorante }: { ristorante: Ristorant
                       type={mostraChiavi['stripe_sec'] ? 'text' : 'password'}
                       value={config.stripe.secretKey}
                       onChange={e => setConfig(c => ({ ...c, stripe: { ...c.stripe, secretKey: e.target.value }}))}
-                      placeholder="sk_live_..."
+                      placeholder={segretiSalvati?.stripeSecretKey ? `${segretiSalvati.stripeSecretKey} — lascia vuoto per non cambiarla` : 'sk_live_...'}
                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400 pr-16"
                     />
                     <button type="button" onClick={() => toggleChiave('stripe_sec')}
@@ -203,7 +232,7 @@ export default function PagamentiManager({ ristorante }: { ristorante: Ristorant
                       type={mostraChiavi['stripe_wh'] ? 'text' : 'password'}
                       value={config.stripe.webhookSecret}
                       onChange={e => setConfig(c => ({ ...c, stripe: { ...c.stripe, webhookSecret: e.target.value }}))}
-                      placeholder="whsec_..."
+                      placeholder={segretiSalvati?.stripeWebhookSecret ? `${segretiSalvati.stripeWebhookSecret} — lascia vuoto per non cambiarla` : 'whsec_...'}
                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400 pr-16"
                     />
                     <button type="button" onClick={() => toggleChiave('stripe_wh')}
@@ -278,7 +307,7 @@ export default function PagamentiManager({ ristorante }: { ristorante: Ristorant
                       type={mostraChiavi['paypal_sec'] ? 'text' : 'password'}
                       value={config.paypal.clientSecret}
                       onChange={e => setConfig(c => ({ ...c, paypal: { ...c.paypal, clientSecret: e.target.value }}))}
-                      placeholder="EeBb..."
+                      placeholder={segretiSalvati?.paypalClientSecret ? `${segretiSalvati.paypalClientSecret} — lascia vuoto per non cambiarla` : 'EeBb...'}
                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400 pr-16"
                     />
                     <button type="button" onClick={() => toggleChiave('paypal_sec')}

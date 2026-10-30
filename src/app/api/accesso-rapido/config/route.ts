@@ -5,6 +5,7 @@ import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getAdminApp } from '@/lib/firebase-admin'
 import { hashPin, pinValido } from '@/lib/pin-hash'
+import { getChiamante, puoGestireRistorante } from '@/lib/auth-server'
 
 // Salvataggio della configurazione dell'accesso rapido (manager del
 // ristorante o superadmin). Il PIN arriva in chiaro solo qui e viene salvato
@@ -18,24 +19,15 @@ export async function POST(req: NextRequest) {
     const adminAuth = getAuth(app)
     const adminDb = getFirestore(app)
 
-    const authHeader = req.headers.get('authorization') || ''
-    const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-    let uid: string
-    try {
-      uid = (await adminAuth.verifyIdToken(idToken || '', true)).uid
-    } catch {
-      return NextResponse.json({ success: false, error: 'Non autenticato' }, { status: 401 })
-    }
+    const chiamante = await getChiamante(req)
+    if (!chiamante) return NextResponse.json({ success: false, error: 'Non autenticato' }, { status: 401 })
 
     const { restaurantId, abilitato, tipo, password } = await req.json()
     if (typeof restaurantId !== 'string' || !restaurantId || typeof abilitato !== 'boolean' || !['pin', 'testo'].includes(tipo)) {
       return NextResponse.json({ success: false, error: 'Parametri non validi' }, { status: 400 })
     }
 
-    const chiamante = (await adminDb.collection('utenti').doc(uid).get()).data()
-    const autorizzato = chiamante?.role === 'superadmin'
-      || (chiamante?.role === 'manager' && chiamante?.restaurantId === restaurantId)
-    if (!autorizzato) return NextResponse.json({ success: false, error: 'Non autorizzato' }, { status: 403 })
+    if (!puoGestireRistorante(chiamante.utente, restaurantId)) return NextResponse.json({ success: false, error: 'Non autorizzato' }, { status: 403 })
 
     const configRef = adminDb.collection('ristoranti').doc(restaurantId).collection('config').doc('accesso-rapido')
     const attuale = (await configRef.get()).data()
