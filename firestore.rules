@@ -9,21 +9,37 @@ service cloud.firestore {
     function getUser() {
       return get(/databases/$(database)/documents/utenti/$(request.auth.uid)).data;
     }
+    // Lo staff entrato con PIN non ha un profilo in /utenti: senza questo
+    // controllo getUser() andrebbe in errore invece di restituire false.
+    function haProfilo() {
+      return isAuth() && exists(/databases/$(database)/documents/utenti/$(request.auth.uid));
+    }
     function isSuperAdmin() {
-      return isAuth() && getUser().role == 'superadmin';
+      return haProfilo() && getUser().role == 'superadmin';
     }
     function isManagerOf(restaurantId) {
-      return isAuth()
+      return haProfilo()
         && getUser().role == 'manager'
         && getUser().restaurantId == restaurantId;
     }
     function isOperatoreOf(restaurantId) {
-      return isAuth()
+      return haProfilo()
         && getUser().restaurantId == restaurantId
         && getUser().role in ['cucina','pizzeria','bar','pasticceria','antipasti','cassa'];
     }
     function isMemberOf(restaurantId) {
       return isManagerOf(restaurantId) || isOperatoreOf(restaurantId);
+    }
+    // Staff entrato con PIN da /accesso/[reparto]: custom token emesso da
+    // /api/accesso-rapido con i claims accessoRapido, restaurantId e role.
+    function isStaffRapidoOf(restaurantId) {
+      return isAuth()
+        && request.auth.token.get('accessoRapido', false) == true
+        && request.auth.token.get('restaurantId', '') == restaurantId
+        && request.auth.token.get('role', '') in ['cucina','pizzeria','bar','pasticceria','antipasti','cassa'];
+    }
+    function isStaffOf(restaurantId) {
+      return isOperatoreOf(restaurantId) || isStaffRapidoOf(restaurantId);
     }
 
     // ── Utenti globali ───────────────────────────────────────────────────
@@ -33,8 +49,7 @@ service cloud.firestore {
     }
 
     // ── Ristoranti ───────────────────────────────────────────────────────
-    // NB: read pubblico perché menu cliente e accesso-rapido reparti/cassa
-    // leggono da client senza Firebase Auth (PIN gestito via API server-side).
+    // NB: read pubblico perché il menu cliente legge senza Firebase Auth.
     match /ristoranti/{restaurantId} {
       allow read:   if true;
       allow create: if isSuperAdmin();
@@ -54,20 +69,37 @@ service cloud.firestore {
       }
 
       // ── Tavoli ────────────────────────────────────────────────────────
+      // Il cliente legge il tavolo dal QR; lo stato "occupato" lo scrive
+      // /api/ordini (Admin SDK). Lo staff può cambiare solo lo stato.
       match /tavoli/{docId} {
-        allow read:   if true; // clienti devono leggere info tavolo via QR
-        allow update: if true; // l'ordine cliente aggiorna lo stato tavolo senza auth
+        allow read:   if true;
+        allow update: if isSuperAdmin() || isManagerOf(restaurantId)
+          || (isStaffOf(restaurantId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stato'])
+              && request.resource.data.stato in ['libero', 'occupato', 'pagamento']);
         allow create, delete: if isSuperAdmin() || isMemberOf(restaurantId);
       }
 
       // ── Ordini ────────────────────────────────────────────────────────
-      // read/update pubblici: il cliente segue lo stato del proprio ordine e
-      // i reparti/cassa in accesso-rapido (PIN) non hanno Firebase Auth.
+      // Creazione e annullamento del cliente passano da /api/ordini (Admin SDK),
+      // i pagamenti dai webhook/cattura server-side. Il cliente può solo
+      // leggere il proprio ordine per ID (auto-ID non indovinabile): nessun
+      // list pubblico. Lo staff aggiorna righe/stato ma non può toccare
+      // totale e metodo, né far uscire un ordine da "in_attesa_pagamento".
       match /ordini/{docId} {
-        allow read:   if true;
-        allow create: if true;
-        allow update: if true;
-        allow delete: if isSuperAdmin() || isManagerOf(restaurantId) || resource.data.stato == 'ricevuto';
+        function aggiornamentoStaffValido() {
+          return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['righe', 'stato', 'updatedAt'])
+            && resource.data.stato != 'in_attesa_pagamento'
+            && request.resource.data.stato in ['ricevuto', 'in_preparazione', 'pronto', 'servito']
+            && request.resource.data.righe.size() == resource.data.righe.size();
+        }
+
+        allow get:    if true;
+        allow list:   if isSuperAdmin() || isManagerOf(restaurantId) || isStaffOf(restaurantId);
+        allow create: if false;
+        allow update: if isSuperAdmin() || isManagerOf(restaurantId)
+          || (isStaffOf(restaurantId) && aggiornamentoStaffValido());
+        allow delete: if isSuperAdmin() || isManagerOf(restaurantId);
       }
 
       // ── Utenti del ristorante ─────────────────────────────────────────
@@ -80,7 +112,7 @@ service cloud.firestore {
       // "pagamenti" contiene solo flag pubblici (quali metodi sono attivi) —
       // il menu cliente lo legge senza auth. Le chiavi segrete vivono in
       // "pagamenti-secret", leggibile solo dal manager (mai dal cliente).
-      // L'accesso-rapido dello staff passa dall'API server-side, non da qui.
+      // Il PIN dell'accesso rapido è verificato solo da /api/accesso-rapido.
       match /config/{docId} {
         allow read:  if docId == 'pagamenti' || isSuperAdmin() || isManagerOf(restaurantId);
         allow write: if isSuperAdmin() || isManagerOf(restaurantId);

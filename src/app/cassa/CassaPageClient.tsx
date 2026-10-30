@@ -3,13 +3,14 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getRistorante, ascoltaOrdiniCassa, aggiornaTavolo } from '@/lib/firestore'
+import { haAccessoRapido } from '@/lib/accesso-rapido'
 import { updateDoc, doc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import type { Ristorante, Ordine } from '@/types'
 import toast from 'react-hot-toast'
 
 export default function CassaPageClient() {
-  const { appUser, loading, logout } = useAuth()
+  const { user, appUser, loading, logout } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
   const restaurantIdParam = searchParams.get('r')
@@ -22,20 +23,21 @@ export default function CassaPageClient() {
   const [restaurantIdEffettivo, setRestaurantIdEffettivo] = useState<string | null>(null)
 
   useEffect(() => {
+    if (loading) return
     if (restaurantIdParam) {
-      const sessione = sessionStorage.getItem(`accesso_${restaurantIdParam}_cassa`)
-      if (sessione) {
-        setAccessoRapido(true)
-        setRestaurantIdEffettivo(restaurantIdParam)
-        return
-      } else {
-        router.replace(`/accesso/cassa?r=${restaurantIdParam}`)
-        return
-      }
+      haAccessoRapido(user, restaurantIdParam, 'cassa').then(ok => {
+        if (ok) {
+          setAccessoRapido(true)
+          setRestaurantIdEffettivo(restaurantIdParam)
+        } else {
+          router.replace(`/accesso/cassa?r=${restaurantIdParam}`)
+        }
+      })
+      return
     }
-    if (!loading && !appUser) { router.replace('/login'); return }
-    if (appUser?.restaurantId) setRestaurantIdEffettivo(appUser.restaurantId)
-  }, [appUser, loading, restaurantIdParam])
+    if (!appUser) { router.replace('/login'); return }
+    if (appUser.restaurantId) setRestaurantIdEffettivo(appUser.restaurantId)
+  }, [user, appUser, loading, restaurantIdParam])
 
   useEffect(() => {
     if (!restaurantIdEffettivo) return
@@ -89,8 +91,7 @@ export default function CassaPageClient() {
 
   const esci = () => {
     if (accessoRapido && restaurantIdEffettivo) {
-      sessionStorage.removeItem(`accesso_${restaurantIdEffettivo}_cassa`)
-      router.replace(`/accesso/cassa?r=${restaurantIdEffettivo}`)
+      logout().then(() => router.replace(`/accesso/cassa?r=${restaurantIdEffettivo}`))
     } else { logout() }
   }
 

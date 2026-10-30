@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getRistorante } from '@/lib/firestore'
 import { ascoltaOrdiniReparto, aggiornaStatoRiga } from '@/lib/firestore'
+import { haAccessoRapido } from '@/lib/accesso-rapido'
 import type { Ristorante, Ordine, CategoriaReparto } from '@/types'
 
 interface DashboardRepartoProps {
@@ -13,7 +14,7 @@ interface DashboardRepartoProps {
 }
 
 export default function DashboardReparto({ reparto, emoji, label }: DashboardRepartoProps) {
-  const { appUser, loading, logout } = useAuth()
+  const { user, appUser, loading, logout } = useAuth()
   const router      = useRouter()
   const searchParams = useSearchParams()
   const restaurantIdParam = searchParams.get('r')
@@ -27,24 +28,25 @@ export default function DashboardReparto({ reparto, emoji, label }: DashboardRep
   const [restaurantIdEffettivo, setRestaurantIdEffettivo] = useState<string | null>(null)
 
   useEffect(() => {
-    // Controlla se accesso rapido via QR
+    if (loading) return
+    // Controlla se accesso rapido via QR (custom token con claims del reparto)
     if (restaurantIdParam) {
-      const sessione = sessionStorage.getItem(`accesso_${restaurantIdParam}_${reparto}`)
-      if (sessione) {
-        setAccessoRapido(true)
-        setRestaurantIdEffettivo(restaurantIdParam)
-        return
-      } else {
-        // Non autenticato — redirect alla pagina accesso
-        router.replace(`/accesso/${reparto}?r=${restaurantIdParam}`)
-        return
-      }
+      haAccessoRapido(user, restaurantIdParam, reparto).then(ok => {
+        if (ok) {
+          setAccessoRapido(true)
+          setRestaurantIdEffettivo(restaurantIdParam)
+        } else {
+          // Non autenticato — redirect alla pagina accesso
+          router.replace(`/accesso/${reparto}?r=${restaurantIdParam}`)
+        }
+      })
+      return
     }
 
     // Accesso normale via Firebase Auth
-    if (!loading && !appUser) { router.replace('/login'); return }
-    if (appUser?.restaurantId) setRestaurantIdEffettivo(appUser.restaurantId)
-  }, [appUser, loading, restaurantIdParam, reparto])
+    if (!appUser) { router.replace('/login'); return }
+    if (appUser.restaurantId) setRestaurantIdEffettivo(appUser.restaurantId)
+  }, [user, appUser, loading, restaurantIdParam, reparto])
 
   useEffect(() => {
     if (!restaurantIdEffettivo) return
@@ -86,8 +88,7 @@ export default function DashboardReparto({ reparto, emoji, label }: DashboardRep
 
   const esci = () => {
     if (accessoRapido && restaurantIdEffettivo) {
-      sessionStorage.removeItem(`accesso_${restaurantIdEffettivo}_${reparto}`)
-      router.replace(`/accesso/${reparto}?r=${restaurantIdEffettivo}`)
+      logout().then(() => router.replace(`/accesso/${reparto}?r=${restaurantIdEffettivo}`))
     } else {
       logout()
     }

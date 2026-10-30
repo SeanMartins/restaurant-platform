@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { getRistoranteBySlug, getCategorie, getPiatti, getTavoli, creaOrdine, getOrdiniTavolo } from '@/lib/firestore'
-import { doc, onSnapshot, deleteDoc, getDoc } from 'firebase/firestore'
+import { getRistoranteBySlug, getCategorie, getPiatti, getTavoli, getOrdiniPerId } from '@/lib/firestore'
+import { doc, onSnapshot, getDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import type { Ristorante, Piatto, Tavolo, RigaOrdine, Ordine } from '@/types'
 import toast from 'react-hot-toast'
@@ -13,6 +13,19 @@ interface OrdineInviato {
   createdAt: string; stato: string; tempoRimasto: number
   metodoPagamento?: string
 }
+// ID degli ordini fatti da questo dispositivo, per tavolo: il cliente non può
+// più cercare gli ordini del tavolo con una query, li rilegge per ID.
+const chiaveOrdini = (restaurantId: string, tavoloId: string) => `ordini_${restaurantId}_${tavoloId}`
+
+function leggiIdOrdini(restaurantId: string, tavoloId: string): string[] {
+  try { return JSON.parse(localStorage.getItem(chiaveOrdini(restaurantId, tavoloId)) || '[]') }
+  catch { return [] }
+}
+
+function salvaIdOrdini(restaurantId: string, tavoloId: string, ids: string[]) {
+  try { localStorage.setItem(chiaveOrdini(restaurantId, tavoloId), JSON.stringify(ids)) } catch {}
+}
+
 interface ConfigPagamenti {
   abilitaPagamentiOnline: boolean
   stripe:   { abilitato: boolean; publishableKey: string }
@@ -24,7 +37,6 @@ interface ConfigPagamenti {
 export default function MenuPubblico({ params }: { params: { restaurantSlug: string } }) {
   const searchParams = useSearchParams()
   const tavoloId  = searchParams.get('tavolo')
-  const tavoloNum = searchParams.get('n')
   const esitoPagamento = searchParams.get('pagamento')
 
   const [ristorante, setRistorante]     = useState<Ristorante | null>(null)
@@ -60,8 +72,9 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
       const t = tavoli.find(t => t.id === tavoloId)
       if (t) setTavolo(t)
 
-      // Recupera ordini recenti del tavolo (sopravvive al redirect di Stripe/PayPal)
-      const ordiniTavolo = await getOrdiniTavolo(r.id, tavoloId)
+      // Recupera gli ordini fatti da questo dispositivo (sopravvive al redirect di Stripe/PayPal)
+      const ordiniTavolo = await getOrdiniPerId(r.id, leggiIdOrdini(r.id, tavoloId))
+      salvaIdOrdini(r.id, tavoloId, ordiniTavolo.map(o => o.id))
       if (ordiniTavolo.length > 0) {
         setOrdiniInviati(ordiniTavolo.map(o => ({
           id: o.id, righe: o.righe, totale: o.totale, createdAt: o.createdAt, stato: o.stato,
@@ -154,19 +167,21 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
     if (!ristorante || !tavoloId || carrello.length === 0) return
     setInviando(true)
     try {
-      const righe: RigaOrdine[] = carrello.map(item => ({
-        piattoId: item.piatto.id, nome: item.piatto.nome, prezzo: item.piatto.prezzo,
-        quantita: item.quantita, reparto: item.piatto.reparto, note: item.note, stato: 'ricevuto'
-      }))
-      const richiedePagamentoOnline = metodoPagamento === 'stripe' || metodoPagamento === 'paypal'
-      const statoIniziale = richiedePagamentoOnline ? 'in_attesa_pagamento' : 'ricevuto'
-
-      const nuovoOrdine = await creaOrdine(ristorante.id, {
-        tavoloId, tavoloNumero: tavolo?.numero || parseInt(tavoloNum || '0'),
-        righe, totale, stato: statoIniziale, metodoPagamento: metodoPagamento as any,
+      // Prezzi, nomi, reparti e stato iniziale li decide il server
+      const resOrdine = await fetch('/api/ordini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: ristorante.id, tavoloId, metodoPagamento,
+          righe: carrello.map(item => ({ piattoId: item.piatto.id, quantita: item.quantita, note: item.note })),
+        }),
       })
+      const datiOrdine = await resOrdine.json()
+      if (!datiOrdine.success) throw new Error(datiOrdine.error || 'Errore nell\'invio')
+      const nuovoOrdine: Ordine = datiOrdine.ordine
+      salvaIdOrdini(ristorante.id, tavoloId, [...leggiIdOrdini(ristorante.id, tavoloId), nuovoOrdine.id])
 
-      if (richiedePagamentoOnline) {
+      if (metodoPagamento === 'stripe' || metodoPagamento === 'paypal') {
         const res = await fetch(`/api/pagamenti/${metodoPagamento}/checkout`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -179,7 +194,7 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
       }
 
       setOrdiniInviati(prev => [...prev, {
-        id: nuovoOrdine.id, righe, totale, createdAt: nuovoOrdine.createdAt,
+        id: nuovoOrdine.id, righe: nuovoOrdine.righe, totale: nuovoOrdine.totale, createdAt: nuovoOrdine.createdAt,
         stato: 'ricevuto', tempoRimasto: 180, metodoPagamento
       }])
       setCarrello([])
@@ -195,10 +210,17 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
   const annullaOrdine = async (id: string) => {
     if (!ristorante) return
     try {
-      await deleteDoc(doc(db, 'ristoranti', ristorante.id, 'ordini', id))
+      const res = await fetch('/api/ordini/annulla', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantId: ristorante.id, ordineId: id }),
+      })
+      const dati = await res.json()
+      if (!dati.success) throw new Error(dati.error)
       setOrdiniInviati(prev => prev.filter(o => o.id !== id))
+      if (tavoloId) salvaIdOrdini(ristorante.id, tavoloId, leggiIdOrdini(ristorante.id, tavoloId).filter(o => o !== id))
       toast.success('Ordine annullato!')
-    } catch { toast.error('Errore nell\'annullamento') }
+    } catch (err: any) { toast.error(err.message || 'Errore nell\'annullamento') }
   }
 
   const statoLabel = (stato: string) => {
@@ -334,7 +356,10 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
             <>
               {ordiniInviati.map(ordine => {
                 const s = statoLabel(ordine.stato)
-                const puoAnnullare = ordine.stato === 'in_attesa_pagamento' || (ordine.tempoRimasto > 0 && ordine.stato === 'ricevuto')
+                // Stesse condizioni di /api/ordini/annulla: un ordine già pagato online non si annulla
+                const pagaInCassa = !ordine.metodoPagamento || ordine.metodoPagamento === 'cassa'
+                const puoAnnullare = ordine.stato === 'in_attesa_pagamento'
+                  || (ordine.tempoRimasto > 0 && ordine.stato === 'ricevuto' && pagaInCassa)
                 return (
                   <div key={ordine.id} className="bg-white rounded-2xl p-5" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
                     <div className="flex items-center justify-between mb-3">

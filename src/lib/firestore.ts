@@ -93,26 +93,18 @@ export async function aggiornaTavolo(restaurantId: string, tavoloId: string, dat
 }
 
 // ─── ORDINI ─────────────────────────────────────────────────────────────────
-export async function creaOrdine(restaurantId: string, ordine: Omit<Ordine, 'id' | 'createdAt' | 'updatedAt'>) {
-  const ref = doc(paths.ordini(restaurantId))
-  const nuovoOrdine: Ordine = {
-    ...ordine,
-    id: ref.id,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }
-  await setDoc(ref, nuovoOrdine)
-  // Aggiorna stato tavolo
-  await aggiornaTavolo(restaurantId, ordine.tavoloId, { stato: 'occupato' })
-  return nuovoOrdine
-}
+// La creazione degli ordini passa da /api/ordini (le regole vietano la
+// scrittura dal client).
 
-// Ordini recenti (non serviti) di un tavolo — usato dal menu cliente per
-// recuperare lo stato degli ordini dopo un redirect di pagamento (Stripe/PayPal)
-export async function getOrdiniTavolo(restaurantId: string, tavoloId: string): Promise<Ordine[]> {
-  const q = query(paths.ordini(restaurantId), where('tavoloId', '==', tavoloId))
-  const snap = await getDocs(q)
-  return snap.docs.map(d => d.data() as Ordine).filter(o => o.stato !== 'servito')
+// Ordini del cliente (non serviti) letti per ID — usato dal menu cliente per
+// recuperare lo stato degli ordini dopo un redirect di pagamento (Stripe/PayPal).
+// Le regole permettono al pubblico solo la lettura per ID, non le query.
+export async function getOrdiniPerId(restaurantId: string, ordineIds: string[]): Promise<Ordine[]> {
+  const snaps = await Promise.all(ordineIds.map(id => getDoc(doc(paths.ordini(restaurantId), id))))
+  return snaps
+    .filter(s => s.exists())
+    .map(s => s.data() as Ordine)
+    .filter(o => o.stato !== 'servito')
 }
 
 // Listener realtime ordini per reparto

@@ -2,7 +2,12 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getFirestore } from 'firebase-admin/firestore'
+import { getAuth } from 'firebase-admin/auth'
 import { getAdminApp } from '@/lib/firebase-admin'
+
+// Reparti per cui si può ottenere un token di accesso rapido: devono
+// coincidere con la lista in isStaffRapidoOf() di firestore.rules.
+const REPARTI_VALIDI = ['cucina', 'pizzeria', 'bar', 'pasticceria', 'antipasti', 'cassa']
 
 // ─── RATE LIMIT ──────────────────────────────────────────────────────────────
 // Il PIN/password di reparto viene confrontato in chiaro: senza un limite ai
@@ -34,8 +39,11 @@ function sanitizeDocId(id: string): string {
 export async function POST(req: NextRequest) {
   try {
     const { restaurantId, password, reparto } = await req.json()
-    if (!restaurantId || !password) {
+    if (typeof restaurantId !== 'string' || !restaurantId || !password) {
       return NextResponse.json({ success: false, error: 'Parametri mancanti' }, { status: 400 })
+    }
+    if (!REPARTI_VALIDI.includes(reparto)) {
+      return NextResponse.json({ success: false, error: 'Reparto non valido' }, { status: 400 })
     }
 
     const adminDb = getFirestore(getAdminApp())
@@ -113,8 +121,16 @@ export async function POST(req: NextRequest) {
     const ristoranteSnap = await adminDb.collection('ristoranti').doc(restaurantId).get()
     const ristorante = ristoranteSnap.data()
 
+    // Sessione vera: il client fa signInWithCustomToken e le regole Firestore
+    // concedono l'accesso agli ordini solo con questi claims. Un uid per
+    // reparto+ristorante, senza profilo in /utenti.
+    const token = await getAuth(getAdminApp()).createCustomToken(
+      `rapido_${restaurantId}_${reparto}`,
+      { accessoRapido: true, restaurantId, role: reparto },
+    )
+
     return NextResponse.json({
-      success: true, reparto, restaurantId,
+      success: true, reparto, restaurantId, token,
       restaurantNome: ristorante?.nome || '',
     })
   } catch (err: any) {

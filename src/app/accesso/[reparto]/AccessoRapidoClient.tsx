@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getRistorante } from '@/lib/firestore'
+import { useAuth } from '@/hooks/useAuth'
+import { entraConTokenRapido, haAccessoRapido } from '@/lib/accesso-rapido'
 
 const REPARTI: Record<string, { label: string; colore: string; emoji: string }> = {
   cucina:      { label: 'Cucina',      colore: '#E63946', emoji: '👨‍🍳' },
@@ -14,6 +16,7 @@ const REPARTI: Record<string, { label: string; colore: string; emoji: string }> 
 
 export default function AccessoRapidoClient({ params }: { params: { reparto: string } }) {
   const router       = useRouter()
+  const { user, loading: authLoading } = useAuth()
   const searchParams = useSearchParams()
   const restaurantId = searchParams.get('r')
   const reparto      = params.reparto
@@ -28,10 +31,16 @@ export default function AccessoRapidoClient({ params }: { params: { reparto: str
 
   useEffect(() => {
     if (!restaurantId) return
-    const sessione = sessionStorage.getItem(`accesso_${restaurantId}_${reparto}`)
-    if (sessione) { router.replace(`/${reparto}?r=${restaurantId}`); return }
     getRistorante(restaurantId).then(r => { if (r) setNomeRistorante(r.nome) })
-  }, [restaurantId, reparto])
+  }, [restaurantId])
+
+  // Già entrato con PIN per questo reparto in questa scheda → vai alla dashboard
+  useEffect(() => {
+    if (!restaurantId || authLoading) return
+    haAccessoRapido(user, restaurantId, reparto).then(ok => {
+      if (ok) router.replace(`/${reparto}?r=${restaurantId}`)
+    })
+  }, [user, authLoading, restaurantId, reparto])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,7 +53,7 @@ export default function AccessoRapidoClient({ params }: { params: { reparto: str
       })
       const data = await res.json()
       if (data.success) {
-        sessionStorage.setItem(`accesso_${restaurantId}_${reparto}`, JSON.stringify({ reparto, restaurantId, timestamp: Date.now() }))
+        await entraConTokenRapido(data.token)
         router.replace(`/${reparto}?r=${restaurantId}`)
       } else {
         setErrore('Password errata')
