@@ -39,6 +39,7 @@ export interface BillingRistorante {
   statoAbbonamento: 'attivo' | 'scaduto' | 'cancellato'
   stripeCustomerId?: string
   stripeSubscriptionId?: string
+  scadenza?: string | null   // YYYY-MM-DD, impostata a mano dal superadmin (es. piloti gratuiti)
   updatedAt: string
 }
 

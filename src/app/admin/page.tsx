@@ -11,6 +11,7 @@ import GraficaManager from '@/components/manager/GraficaManager'
 import OperatoriManager from '@/components/manager/OperatoriManager'
 import StatisticheManager from '@/components/manager/StatisticheManager'
 import PagamentiManager from '@/components/manager/PagamentiManager'
+import AbbonamentoAdmin from '@/components/admin/AbbonamentoAdmin'
 
 type VistaAdmin = 'lista' | 'nuovo' | 'manager' | 'gestisci'
 type SezioneGestisci = 'info' | 'statistiche' | 'menu' | 'tavoli' | 'grafica' | 'pagamenti' | 'operatori'
@@ -215,6 +216,7 @@ export default function AdminPage() {
                   </button>
                 </div>
               </div>
+              <AbbonamentoAdmin ristorante={ristoranteAttivo} />
               <div className="bg-white rounded-2xl border border-gray-100 p-6">
                 <h3 className="font-semibold text-gray-800 mb-2">URL pubblico menu</h3>
                 <p className="text-sm text-gray-500 mb-3">Condividi questo link con il ristorante</p>
