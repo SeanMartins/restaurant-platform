@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { doc, setDoc, getDoc } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { db, auth } from '@/lib/firebase'
 import type { Ristorante, UserRole } from '@/types'
 import QRCode from 'qrcode'
 import toast from 'react-hot-toast'
@@ -150,8 +150,9 @@ export default function OperatoriManager({ ristorante }: { ristorante: Ristorant
     e.preventDefault()
     setLoading(true)
     try {
+      const idToken = await auth.currentUser?.getIdToken()
       const res = await fetch('/api/crea-utente', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ ...form, restaurantId: ristorante.id })
       })
       const data = await res.json()

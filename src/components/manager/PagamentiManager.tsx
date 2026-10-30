@@ -214,7 +214,7 @@ export default function PagamentiManager({ ristorante }: { ristorante: Ristorant
                 </div>
                 <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5 text-xs text-blue-800">
                   Nel tuo account Stripe vai su <b>Developers → Webhooks → Add endpoint</b>, incolla questo URL,
-                  seleziona l'evento <code>checkout.session.completed</code> e copia qui il "Signing secret" che ti mostra:
+                  seleziona l&apos;evento <code>checkout.session.completed</code> e copia qui il &ldquo;Signing secret&rdquo; che ti mostra:
                   <div className="mt-1.5 font-mono bg-white border border-blue-200 rounded-lg px-2 py-1.5 break-all select-all">
                     {process.env.NEXT_PUBLIC_APP_URL}/api/pagamenti/stripe/webhook/{ristorante.id}
                   </div>

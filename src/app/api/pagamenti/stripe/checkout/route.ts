@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getFirestore } from 'firebase-admin/firestore'
 import { getAdminApp } from '@/lib/firebase-admin'
 import { getStripeForRestaurant } from '@/lib/stripe'
+import { ricalcolaTotaleOrdine, OrdineTotaleError } from '@/lib/ordine-totale'
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,6 +35,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Stripe non configurato per questo ristorante' }, { status: 400 })
     }
 
+    // Il totale scritto sull'ordine viene dal client (kiosk senza auth) e non
+    // è affidabile: lo ricalcoliamo qui usando i prezzi attuali del menu e
+    // ignoriamo del tutto `ordine.totale` per l'importo effettivo del pagamento.
+    let totaleReale: number
+    try {
+      totaleReale = await ricalcolaTotaleOrdine(adminDb, restaurantId, ordine as any)
+    } catch (err: any) {
+      if (err instanceof OrdineTotaleError) {
+        return NextResponse.json({ success: false, error: `Ordine non valido: ${err.message}` }, { status: 400 })
+      }
+      throw err
+    }
+
+    // Allinea il totale persistito a quello reale, così la cassa/dashboard
+    // non mostrano più il valore (potenzialmente alterato) scritto dal client.
+    if (totaleReale !== ordine.totale) {
+      await adminDb.collection('ristoranti').doc(restaurantId).collection('ordini').doc(ordineId)
+        .update({ totale: totaleReale, updatedAt: new Date().toISOString() })
+    }
+
     const stripe = getStripeForRestaurant(secretKey)
     const appUrl = process.env.NEXT_PUBLIC_APP_URL
     const tornaAlMenu = `${appUrl}/${ristorante.slug}?tavolo=${ordine.tavoloId}&n=${ordine.tavoloNumero}`
@@ -44,7 +65,7 @@ export async function POST(req: NextRequest) {
         price_data: {
           currency: 'eur',
           product_data: { name: `Ordine Tavolo ${ordine.tavoloNumero} — ${ristorante.nome}` },
-          unit_amount: Math.round(ordine.totale * 100),
+          unit_amount: Math.round(totaleReale * 100),
         },
         quantity: 1,
       }],

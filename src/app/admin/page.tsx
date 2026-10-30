@@ -16,7 +16,7 @@ type VistaAdmin = 'lista' | 'nuovo' | 'manager' | 'gestisci'
 type SezioneGestisci = 'info' | 'statistiche' | 'menu' | 'tavoli' | 'grafica' | 'pagamenti' | 'operatori'
 
 export default function AdminPage() {
-  const { appUser, loading, logout } = useAuth()
+  const { user, appUser, loading, logout } = useAuth()
   const router = useRouter()
   const [ristoranti, setRistoranti]   = useState<Ristorante[]>([])
   const [vista, setVista]             = useState<VistaAdmin>('lista')
@@ -96,8 +96,9 @@ export default function AdminPage() {
     e.preventDefault()
     setCreandoManager(true)
     try {
+      const idToken = await user?.getIdToken()
       const res = await fetch('/api/crea-utente', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ ...formManager, role: 'manager' })
       })
       const data = await res.json()
@@ -207,7 +208,7 @@ export default function AdminPage() {
                       onChange={e => setRistoranteAttivo({ ...ristoranteAttivo, telefono: e.target.value })}
                       className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400"/>
                   </div>
-                  <p className="text-xs text-gray-400">Nome, colori e font si modificano nella scheda "Grafica".</p>
+                  <p className="text-xs text-gray-400">Nome, colori e font si modificano nella scheda &ldquo;Grafica&rdquo;.</p>
                   <button onClick={salvaInfoRistorante}
                     className="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold mt-2">
                     Salva modifiche

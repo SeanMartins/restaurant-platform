@@ -1,7 +1,7 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
   onSnapshot, query, where, orderBy, serverTimestamp, Timestamp,
-  addDoc
+  addDoc, runTransaction
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type { Ristorante, Categoria, Piatto, Tavolo, Ordine, RigaOrdine, AppUser } from '@/types'
@@ -152,7 +152,12 @@ export function ascoltaOrdiniCassa(
   })
 }
 
-// Aggiorna stato di una riga ordine (un piatto è pronto)
+// Aggiorna stato di una riga ordine (un piatto è pronto).
+// Usa una transazione per evitare la race condition tra lettura e scrittura
+// dell'array `righe`: due reparti che aggiornano righe diverse dello stesso
+// ordine quasi in contemporanea potrebbero altrimenti sovrascriversi a vicenda
+// (leggono entrambi lo stesso array, ognuno scrive la propria versione modificata
+// perdendo la modifica dell'altro).
 export async function aggiornaStatoRiga(
   restaurantId: string,
   ordineId: string,
@@ -160,16 +165,20 @@ export async function aggiornaStatoRiga(
   nuovoStato: RigaOrdine['stato']
 ) {
   const ordineRef = doc(paths.ordini(restaurantId), ordineId)
-  const snap = await getDoc(ordineRef)
-  if (!snap.exists()) return
-  const ordine = snap.data() as Ordine
-  ordine.righe[piattoIndex].stato = nuovoStato
-  // Controlla se tutte le righe sono pronte
-  const tuttePronte = ordine.righe.every(r => r.stato === 'pronto' || r.stato === 'servito')
-  await updateDoc(ordineRef, {
-    righe: ordine.righe,
-    stato: tuttePronte ? 'pronto' : ordine.stato,
-    updatedAt: new Date().toISOString()
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ordineRef)
+    if (!snap.exists()) return
+    const ordine = snap.data() as Ordine
+    if (!ordine.righe[piattoIndex]) return
+    const righe = [...ordine.righe]
+    righe[piattoIndex] = { ...righe[piattoIndex], stato: nuovoStato }
+    // Controlla se tutte le righe sono pronte
+    const tuttePronte = righe.every(r => r.stato === 'pronto' || r.stato === 'servito')
+    tx.update(ordineRef, {
+      righe,
+      stato: tuttePronte ? 'pronto' : ordine.stato,
+      updatedAt: new Date().toISOString()
+    })
   })
 }
 
