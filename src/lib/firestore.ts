@@ -36,6 +36,8 @@ export async function getRistorante(id: string): Promise<Ristorante | null> {
   return snap.exists() ? (snap.data() as Ristorante) : null
 }
 
+// Query sulla collezione: le regole la permettono solo al superadmin. Il menu
+// pubblico usa getRistorantePubblicoBySlug (lato server).
 export async function getRistoranteBySlug(slug: string): Promise<Ristorante | null> {
   const q = query(paths.ristoranti(), where('slug', '==', slug))
   const snap = await getDocs(q)
@@ -43,6 +45,7 @@ export async function getRistoranteBySlug(slug: string): Promise<Ristorante | nu
   return snap.docs[0].data() as Ristorante
 }
 
+// Solo superadmin (list sulla collezione)
 export async function getTuttiRistoranti(): Promise<Ristorante[]> {
   const snap = await getDocs(paths.ristoranti())
   return snap.docs.map(d => d.data() as Ristorante)

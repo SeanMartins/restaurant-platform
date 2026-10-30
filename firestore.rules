@@ -49,11 +49,26 @@ service cloud.firestore {
     }
 
     // ── Ristoranti ───────────────────────────────────────────────────────
-    // NB: read pubblico perché il menu cliente legge senza Firebase Auth.
+    // Il documento contiene solo dati da vetrina: get pubblico (dashboard
+    // reparti, accesso rapido), ma nessun list pubblico. Il menu cliente
+    // cerca lo slug lato server. La fatturazione sta in config/billing.
     match /ristoranti/{restaurantId} {
-      allow read:   if true;
-      allow create: if isSuperAdmin();
-      allow update: if isSuperAdmin() || isManagerOf(restaurantId);
+      function senzaCampiBilling() {
+        return !request.resource.data.keys().hasAny(['piano', 'statoAbbonamento', 'stripeCustomerId', 'stripeSubscriptionId']);
+      }
+      // Il manager modifica solo grafica e anagrafica: slug, attivo e
+      // fatturazione restano a superadmin e server (Admin SDK).
+      function aggiornamentoManagerValido() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'nome', 'colori', 'font', 'logo', 'indirizzo', 'telefono', 'onboardingCompletato', 'updatedAt'
+        ]);
+      }
+
+      allow get:    if true;
+      allow list:   if isSuperAdmin();
+      allow create: if isSuperAdmin() && senzaCampiBilling();
+      allow update: if senzaCampiBilling()
+        && (isSuperAdmin() || (isManagerOf(restaurantId) && aggiornamentoManagerValido()));
       allow delete: if isSuperAdmin();
 
       // ── Menu: categorie ───────────────────────────────────────────────
@@ -108,14 +123,15 @@ service cloud.firestore {
         allow write: if isSuperAdmin() || isManagerOf(restaurantId);
       }
 
-      // ── Config (accesso rapido, pagamenti) ─────────────────────────────
+      // ── Config (accesso rapido, pagamenti, billing) ────────────────────
       // "pagamenti" contiene solo flag pubblici (quali metodi sono attivi) —
       // il menu cliente lo legge senza auth. Le chiavi segrete vivono in
       // "pagamenti-secret", leggibile solo dal manager (mai dal cliente).
       // Il PIN dell'accesso rapido è verificato solo da /api/accesso-rapido.
+      // "billing" (piano, abbonamento, ID Stripe) lo scrive solo il server.
       match /config/{docId} {
         allow read:  if docId == 'pagamenti' || isSuperAdmin() || isManagerOf(restaurantId);
-        allow write: if isSuperAdmin() || isManagerOf(restaurantId);
+        allow write: if docId != 'billing' && (isSuperAdmin() || isManagerOf(restaurantId));
       }
     }
   }

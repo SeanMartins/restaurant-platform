@@ -8,7 +8,7 @@ import { getAdminApp } from '@/lib/firebase-admin'
 import { getStripe } from '@/lib/stripe'
 import { inviaEmailBenvenuto } from '@/lib/resend'
 import type { PianoId } from '@/lib/stripe'
-import type { Ristorante, AppUser } from '@/types'
+import type { Ristorante, BillingRistorante, AppUser } from '@/types'
 
 const COLORI_DEFAULT = { primario: '#E63946', secondario: '#457B9D', sfondo: '#F1FAEE', testo: '#1D3557' }
 
@@ -43,8 +43,10 @@ async function gestisciCheckoutCompletato(session: Stripe.Checkout.Session) {
   // Idempotenza: Stripe può ri-consegnare lo stesso evento più volte.
   // Si verifica sulla subscription, non sull'email: un'email può già esistere
   // per altri motivi (es. account superadmin) senza che sia un duplicato di questo checkout.
-  const giaProvisionato = await adminDb.collection('ristoranti').where('stripeSubscriptionId', '==', subscriptionId).limit(1).get()
-  if (!giaProvisionato.empty) {
+  // abbonamenti/{subscriptionId} è un indice solo-server (nessuna regola client):
+  // i dati di fatturazione non stanno più sul documento ristorante.
+  const abbonamentoRef = adminDb.collection('abbonamenti').doc(subscriptionId)
+  if ((await abbonamentoRef.get()).exists) {
     console.log(`Provisioning già eseguito per la subscription ${subscriptionId}, skip`)
     return
   }
@@ -57,6 +59,7 @@ async function gestisciCheckoutCompletato(session: Stripe.Checkout.Session) {
   const nomeCliente = session.customer_details?.name || email.split('@')[0]
   const slug = await generaSlugUnivoco(adminDb, nomeCliente)
 
+  const adesso = new Date().toISOString()
   const ristoranteRef = adminDb.collection('ristoranti').doc()
   const ristorante: Ristorante = {
     id: ristoranteRef.id,
@@ -64,15 +67,33 @@ async function gestisciCheckoutCompletato(session: Stripe.Checkout.Session) {
     slug,
     colori: COLORI_DEFAULT,
     attivo: true,
+    onboardingCompletato: false,
+    createdAt: adesso,
+    updatedAt: adesso,
+  }
+  const billing: BillingRistorante = {
     piano,
     statoAbbonamento: 'attivo',
-    onboardingCompletato: false,
     stripeCustomerId: String(session.customer),
     stripeSubscriptionId: subscriptionId,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    updatedAt: adesso,
   }
-  await ristoranteRef.set(ristorante)
+  // create() fallisce se l'abbonamento esiste già: due consegne concorrenti
+  // dello stesso evento non possono creare due ristoranti.
+  const batch = adminDb.batch()
+  batch.create(abbonamentoRef, { restaurantId: ristorante.id, createdAt: adesso })
+  batch.set(ristoranteRef, ristorante)
+  batch.set(ristoranteRef.collection('config').doc('billing'), billing)
+  try {
+    await batch.commit()
+  } catch (err: any) {
+    // 6 = ALREADY_EXISTS (gRPC): l'altra consegna ha già provisionato
+    if (err?.code === 6) {
+      console.log(`Provisioning già eseguito per la subscription ${subscriptionId}, skip`)
+      return
+    }
+    throw err
+  }
 
   const userRecord = await adminAuth.createUser({ email, displayName: nomeCliente, emailVerified: true })
   const utente: AppUser = {

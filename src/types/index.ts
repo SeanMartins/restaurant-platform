@@ -26,12 +26,19 @@ export interface Ristorante {
   }
   font?: string
   attivo: boolean
-  piano?: 'base' | 'pro'
-  statoAbbonamento?: 'attivo' | 'scaduto' | 'cancellato'
   onboardingCompletato?: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+// Il documento del ristorante è leggibile pubblicamente (menu e QR): i dati
+// di fatturazione vivono in ristoranti/{id}/config/billing, leggibile solo da
+// manager e superadmin e scritto solo dal server.
+export interface BillingRistorante {
+  piano: 'base' | 'pro'
+  statoAbbonamento: 'attivo' | 'scaduto' | 'cancellato'
   stripeCustomerId?: string
   stripeSubscriptionId?: string
-  createdAt: string
   updatedAt: string
 }
 

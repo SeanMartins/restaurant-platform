@@ -1,10 +1,11 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { getRistoranteBySlug, getCategorie, getPiatti, getTavoli, getOrdiniPerId } from '@/lib/firestore'
+import { getCategorie, getPiatti, getTavoli, getOrdiniPerId } from '@/lib/firestore'
+import type { RistorantePubblico } from '@/lib/ristorante-pubblico'
 import { doc, onSnapshot, getDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import type { Ristorante, Piatto, Tavolo, RigaOrdine, Ordine } from '@/types'
+import type { Piatto,Tavolo, RigaOrdine, Ordine } from '@/types'
 import toast from 'react-hot-toast'
 
 interface CarrelloItem { piatto: Piatto; quantita: number; note: string }
@@ -34,12 +35,12 @@ interface ConfigPagamenti {
   pagaInCassa: { abilitato: boolean }
 }
 
-export default function MenuPubblico({ params }: { params: { restaurantSlug: string } }) {
+export default function MenuPubblico({ ristoranteIniziale }: { ristoranteIniziale: RistorantePubblico | null }) {
   const searchParams = useSearchParams()
   const tavoloId  = searchParams.get('tavolo')
   const esitoPagamento = searchParams.get('pagamento')
 
-  const [ristorante, setRistorante]     = useState<Ristorante | null>(null)
+  const [ristorante, setRistorante]     = useState<RistorantePubblico | null>(null)
   const [categorie, setCategorie]       = useState<any[]>([])
   const [piatti, setPiatti]             = useState<Piatto[]>([])
   const [tavolo, setTavolo]             = useState<Tavolo | null>(null)
@@ -55,10 +56,10 @@ export default function MenuPubblico({ params }: { params: { restaurantSlug: str
   const timerRef = useRef<any>(null)
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
-  useEffect(() => { caricaDati() }, [params.restaurantSlug])
+  useEffect(() => { caricaDati() }, [ristoranteIniziale?.id])
 
   const caricaDati = async () => {
-    const r = await getRistoranteBySlug(params.restaurantSlug)
+    const r = ristoranteIniziale
     if (!r || !r.attivo) { setLoading(false); return }
     setRistorante(r)
     const [cats, platti, tavoli] = await Promise.all([
