@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { doc, setDoc, getDoc } from 'firebase/firestore'
+import { doc, getDoc } from 'firebase/firestore'
 import { db, auth } from '@/lib/firebase'
 import type { Ristorante, UserRole } from '@/types'
 import QRCode from 'qrcode'
@@ -21,12 +21,14 @@ export default function OperatoriManager({ ristorante }: { ristorante: Ristorant
   const [vistaAttiva, setVistaAttiva] = useState<'qr' | 'crea' | 'password'>('password')
   const canvasRefs = useRef<{ [key: string]: HTMLCanvasElement | null }>({})
 
-  // Config accesso rapido
+  // Config accesso rapido. Il PIN salvato è solo un hash: non si rilegge,
+  // `password` contiene solo un eventuale nuovo valore da impostare.
   const [configPassword, setConfigPassword] = useState({
     abilitato: false,
     tipo: 'pin' as 'pin' | 'testo',
     password: '',
   })
+  const [passwordImpostata, setPasswordImpostata] = useState(false)
   const [mostraPassword, setMostraPassword] = useState(false)
   const [salvandoConfig, setSalvandoConfig] = useState(false)
 
@@ -41,16 +43,30 @@ export default function OperatoriManager({ ristorante }: { ristorante: Ristorant
   const caricaConfig = async () => {
     try {
       const snap = await getDoc(doc(db, 'ristoranti', ristorante.id, 'config', 'accesso-rapido'))
-      if (snap.exists()) setConfigPassword({ ...configPassword, ...snap.data() as any })
+      if (snap.exists()) {
+        const dati = snap.data()
+        setConfigPassword(c => ({ ...c, abilitato: !!dati.abilitato, tipo: dati.tipo || 'pin', password: '' }))
+        setPasswordImpostata(!!(dati.passwordHash || dati.password))
+      }
     } catch {}
   }
 
   const salvaConfig = async () => {
     setSalvandoConfig(true)
     try {
-      await setDoc(doc(db, 'ristoranti', ristorante.id, 'config', 'accesso-rapido'), configPassword)
+      // Passa dal server, che salva solo l'hash del PIN
+      const idToken = await auth.currentUser?.getIdToken()
+      const res = await fetch('/api/accesso-rapido/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ restaurantId: ristorante.id, ...configPassword }),
+      })
+      const dati = await res.json()
+      if (!dati.success) throw new Error(dati.error)
+      setPasswordImpostata(dati.impostata)
+      setConfigPassword(c => ({ ...c, password: '' }))
       toast.success('Configurazione salvata!')
-    } catch { toast.error('Errore nel salvataggio') }
+    } catch (err: any) { toast.error(err.message || 'Errore nel salvataggio') }
     finally { setSalvandoConfig(false) }
   }
 
@@ -237,7 +253,8 @@ export default function OperatoriManager({ ristorante }: { ristorante: Ristorant
                 {/* Password */}
                 <div className="mb-5">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {configPassword.tipo === 'pin' ? 'PIN (4-6 cifre)' : 'Password'}
+                    {configPassword.tipo === 'pin' ? 'PIN (6 cifre)' : 'Password (almeno 8 caratteri)'}
+                    {passwordImpostata && <span className="ml-2 text-xs text-green-600 font-normal">✓ già impostato — lascia vuoto per non cambiarlo</span>}
                   </label>
                   <div className="relative">
                     <input
@@ -249,7 +266,7 @@ export default function OperatoriManager({ ristorante }: { ristorante: Ristorant
                           : e.target.value
                         setConfigPassword(c => ({ ...c, password: val }))
                       }}
-                      placeholder={configPassword.tipo === 'pin' ? 'es. 1234' : 'es. ristorante2024'}
+                      placeholder={passwordImpostata ? '••••••' : configPassword.tipo === 'pin' ? 'es. 482915' : 'es. ristorante2024'}
                       className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400 pr-20"
                     />
                     <button type="button" onClick={() => setMostraPassword(!mostraPassword)}
@@ -258,7 +275,7 @@ export default function OperatoriManager({ ristorante }: { ristorante: Ristorant
                     </button>
                   </div>
                   {configPassword.tipo === 'pin' && (
-                    <p className="text-xs text-gray-400 mt-1">Solo numeri, 4-6 cifre</p>
+                    <p className="text-xs text-gray-400 mt-1">Solo numeri, 6 cifre. Evita sequenze come 123456.</p>
                   )}
                 </div>
 
@@ -278,7 +295,7 @@ export default function OperatoriManager({ ristorante }: { ristorante: Ristorant
             </button>
           </div>
 
-          {configPassword.abilitato && configPassword.password && (
+          {configPassword.abilitato && passwordImpostata && (
             <div className="mt-4 bg-green-50 border border-green-100 rounded-2xl p-4">
               <p className="text-sm font-medium text-green-800 mb-1">✅ Accesso rapido attivo</p>
               <p className="text-sm text-green-700">
@@ -297,7 +314,7 @@ export default function OperatoriManager({ ristorante }: { ristorante: Ristorant
       {/* VISTA QR */}
       {vistaAttiva === 'qr' && (
         <div>
-          {!configPassword.abilitato || !configPassword.password ? (
+          {!configPassword.abilitato || !passwordImpostata ? (
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center max-w-md">
               <p className="text-3xl mb-3">🔑</p>
               <p className="font-semibold text-amber-800 mb-2">Configura prima l&apos;accesso rapido</p>

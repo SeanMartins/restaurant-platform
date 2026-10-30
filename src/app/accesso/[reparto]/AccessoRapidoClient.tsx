@@ -56,7 +56,7 @@ export default function AccessoRapidoClient({ params }: { params: { reparto: str
         await entraConTokenRapido(data.token)
         router.replace(`/${reparto}?r=${restaurantId}`)
       } else {
-        setErrore('Password errata')
+        setErrore(res.status === 429 ? data.error : 'Password errata')
         setPassword('')
       }
     } catch { setErrore('Errore di connessione') }
@@ -70,7 +70,9 @@ export default function AccessoRapidoClient({ params }: { params: { reparto: str
   }
 
   useEffect(() => {
-    if (tipo === 'pin' && password.length >= 4) {
+    // Invio automatico solo a PIN completo (6 cifre): i PIN più corti salvati
+    // in passato si confermano con "Accedi", senza sprecare tentativi
+    if (tipo === 'pin' && password.length === 6) {
       const timer = setTimeout(() => document.getElementById('btn-accedi')?.click(), 300)
       return () => clearTimeout(timer)
     }
