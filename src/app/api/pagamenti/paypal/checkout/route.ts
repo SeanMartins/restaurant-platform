@@ -29,15 +29,18 @@ export async function POST(req: NextRequest) {
     const config = configSnap.data()
     const segreto = segretoSnap.data()
 
+    if (ordine.stato !== 'in_attesa_pagamento' || ordine.metodoPagamento !== 'paypal') {
+      return NextResponse.json({ success: false, error: 'Ordine non in attesa di pagamento PayPal' }, { status: 409 })
+    }
+
     const clientId     = config?.paypal?.clientId
     const clientSecret = segreto?.paypal?.clientSecret
     if (!config?.paypal?.abilitato || !clientId || !clientSecret) {
       return NextResponse.json({ success: false, error: 'PayPal non configurato per questo ristorante' }, { status: 400 })
     }
 
-    // Il totale scritto sull'ordine viene dal client (kiosk senza auth) e non
-    // è affidabile: lo ricalcoliamo qui usando i prezzi attuali del menu e
-    // ignoriamo del tutto `ordine.totale` per l'importo effettivo del pagamento.
+    // L'importo da pagare si ricalcola sempre dai prezzi attuali del menu,
+    // senza fidarsi di `ordine.totale` salvato sul documento.
     let totaleReale: number
     try {
       totaleReale = await ricalcolaTotaleOrdine(adminDb, restaurantId, ordine as any)
@@ -48,16 +51,9 @@ export async function POST(req: NextRequest) {
       throw err
     }
 
-    // Allinea il totale persistito a quello reale, così la cassa/dashboard
-    // non mostrano più il valore (potenzialmente alterato) scritto dal client.
-    if (totaleReale !== ordine.totale) {
-      await adminDb.collection('ristoranti').doc(restaurantId).collection('ordini').doc(ordineId)
-        .update({ totale: totaleReale, updatedAt: new Date().toISOString() })
-    }
-
     const accessToken = await getPaypalAccessToken(clientId, clientSecret)
     const appUrl = process.env.NEXT_PUBLIC_APP_URL
-    const tornaAlMenu = `${appUrl}/${ristorante.slug}?tavolo=${ordine.tavoloId}&n=${ordine.tavoloNumero}`
+    const tornaAlMenu = `${appUrl}/${ristorante.slug}?tavolo=${encodeURIComponent(ordine.tavoloId)}&n=${encodeURIComponent(ordine.tavoloNumero)}`
 
     const res = await fetch(`${PAYPAL_API_BASE}/v2/checkout/orders`, {
       method: 'POST',
@@ -69,7 +65,7 @@ export async function POST(req: NextRequest) {
           amount: { currency_code: 'EUR', value: totaleReale.toFixed(2) },
         }],
         application_context: {
-          return_url: `${appUrl}/api/pagamenti/paypal/cattura?restaurantId=${restaurantId}&ordineId=${ordineId}`,
+          return_url: `${appUrl}/api/pagamenti/paypal/cattura?restaurantId=${encodeURIComponent(restaurantId)}&ordineId=${encodeURIComponent(ordineId)}`,
           cancel_url: `${tornaAlMenu}&pagamento=annullato`,
           user_action: 'PAY_NOW',
         },
@@ -84,6 +80,15 @@ export async function POST(req: NextRequest) {
 
     const linkApprova = dati.links?.find((l: any) => l.rel === 'approve')?.href
     if (!linkApprova) return NextResponse.json({ success: false, error: 'Link di approvazione PayPal mancante' }, { status: 500 })
+
+    // La cattura accetta solo questo ordine PayPal e questo importo per l'ordine.
+    // Allinea anche il totale a quello reale, così la cassa mostra l'importo pagato.
+    await adminDb.collection('ristoranti').doc(restaurantId).collection('ordini').doc(ordineId).update({
+      totale: totaleReale,
+      importoAtteso: totaleReale,
+      paypalOrderId: dati.id,
+      updatedAt: new Date().toISOString(),
+    })
 
     return NextResponse.json({ success: true, url: linkApprova })
   } catch (err: any) {

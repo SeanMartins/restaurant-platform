@@ -30,14 +30,17 @@ export async function POST(req: NextRequest) {
     const config = configSnap.data()
     const segreto = segretoSnap.data()
 
+    if (ordine.stato !== 'in_attesa_pagamento' || ordine.metodoPagamento !== 'stripe') {
+      return NextResponse.json({ success: false, error: 'Ordine non in attesa di pagamento con carta' }, { status: 409 })
+    }
+
     const secretKey = segreto?.stripe?.secretKey
     if (!config?.stripe?.abilitato || !secretKey) {
       return NextResponse.json({ success: false, error: 'Stripe non configurato per questo ristorante' }, { status: 400 })
     }
 
-    // Il totale scritto sull'ordine viene dal client (kiosk senza auth) e non
-    // è affidabile: lo ricalcoliamo qui usando i prezzi attuali del menu e
-    // ignoriamo del tutto `ordine.totale` per l'importo effettivo del pagamento.
+    // L'importo da pagare si ricalcola sempre dai prezzi attuali del menu,
+    // senza fidarsi di `ordine.totale` salvato sul documento.
     let totaleReale: number
     try {
       totaleReale = await ricalcolaTotaleOrdine(adminDb, restaurantId, ordine as any)
@@ -48,18 +51,12 @@ export async function POST(req: NextRequest) {
       throw err
     }
 
-    // Allinea il totale persistito a quello reale, così la cassa/dashboard
-    // non mostrano più il valore (potenzialmente alterato) scritto dal client.
-    if (totaleReale !== ordine.totale) {
-      await adminDb.collection('ristoranti').doc(restaurantId).collection('ordini').doc(ordineId)
-        .update({ totale: totaleReale, updatedAt: new Date().toISOString() })
-    }
-
     const stripe = getStripeForRestaurant(secretKey)
     const appUrl = process.env.NEXT_PUBLIC_APP_URL
-    const tornaAlMenu = `${appUrl}/${ristorante.slug}?tavolo=${ordine.tavoloId}&n=${ordine.tavoloNumero}`
+    const tornaAlMenu = `${appUrl}/${ristorante.slug}?tavolo=${encodeURIComponent(ordine.tavoloId)}&n=${encodeURIComponent(ordine.tavoloNumero)}`
 
     const session = await stripe.checkout.sessions.create({
+      client_reference_id: ordineId,
       mode: 'payment',
       line_items: [{
         price_data: {
@@ -72,6 +69,15 @@ export async function POST(req: NextRequest) {
       metadata: { restaurantId, ordineId },
       success_url: `${tornaAlMenu}&pagamento=ok`,
       cancel_url: `${tornaAlMenu}&pagamento=annullato`,
+    })
+
+    // Il webhook accetta solo questa sessione e questo importo per l'ordine.
+    // Allinea anche il totale a quello reale, così la cassa mostra l'importo pagato.
+    await adminDb.collection('ristoranti').doc(restaurantId).collection('ordini').doc(ordineId).update({
+      totale: totaleReale,
+      importoAtteso: totaleReale,
+      stripeSessionId: session.id,
+      updatedAt: new Date().toISOString(),
     })
 
     return NextResponse.json({ success: true, url: session.url })

@@ -98,6 +98,12 @@ export interface Ordine {
   totale: number
   stato: StatoOrdine
   metodoPagamento?: 'cassa' | 'stripe' | 'paypal' | 'satispay'
+  // Pagamento online: scritti solo dal server al checkout e verificati dal
+  // webhook Stripe / dalla cattura PayPal prima di segnare l'ordine pagato
+  importoAtteso?: number
+  stripeSessionId?: string
+  paypalOrderId?: string
+  riferimentoPagamento?: string   // payment intent Stripe o capture PayPal
   createdAt: string
   updatedAt: string
 }
