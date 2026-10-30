@@ -25,6 +25,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, url: session.url })
   } catch (err: any) {
     console.error('ERRORE CHECKOUT:', err)
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 })
+    return NextResponse.json({ success: false, error: 'Errore nella creazione del pagamento' }, { status: 500 })
   }
 }

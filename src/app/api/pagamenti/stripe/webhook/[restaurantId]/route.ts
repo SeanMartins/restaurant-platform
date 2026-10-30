@@ -80,6 +80,6 @@ export async function POST(req: NextRequest, { params }: { params: { restaurantI
     return NextResponse.json({ received: true })
   } catch (err: any) {
     console.error('ERRORE WEBHOOK STRIPE RISTORANTE:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: 'Errore interno' }, { status: 500 })
   }
 }

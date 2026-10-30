@@ -83,6 +83,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, url: session.url })
   } catch (err: any) {
     console.error('ERRORE CHECKOUT STRIPE RISTORANTE:', err)
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 })
+    return NextResponse.json({ success: false, error: 'Errore nel checkout con carta' }, { status: 500 })
   }
 }
