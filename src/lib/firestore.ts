@@ -110,11 +110,16 @@ export async function getOrdiniPerId(restaurantId: string, ordineIds: string[]):
     .filter(o => o.stato !== 'servito')
 }
 
+// Ordine visto da un reparto: solo le sue righe, ognuna con la posizione
+// nell'array completo `righe` (quella che serve ad aggiornaStatoRiga)
+export type RigaReparto = RigaOrdine & { indice: number }
+export type OrdineReparto = Omit<Ordine, 'righe'> & { righe: RigaReparto[] }
+
 // Listener realtime ordini per reparto
 export function ascoltaOrdiniReparto(
   restaurantId: string,
   reparto: string,
-  callback: (ordini: Ordine[]) => void
+  callback: (ordini: OrdineReparto[]) => void
 ) {
   const q = query(
     paths.ordini(restaurantId),
@@ -126,7 +131,9 @@ export function ascoltaOrdiniReparto(
       .filter(o => o.stato !== 'servito' && o.stato !== 'in_attesa_pagamento')
       .map(o => ({
         ...o,
-        righe: o.righe.filter(r => r.reparto === reparto && r.stato !== 'servito')
+        righe: o.righe
+          .map((r, indice) => ({ ...r, indice }))
+          .filter(r => r.reparto === reparto && r.stato !== 'servito')
       }))
       .filter(o => o.righe.length > 0)
     callback(filtrati)

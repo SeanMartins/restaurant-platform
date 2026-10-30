@@ -3,9 +3,9 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getRistorante } from '@/lib/firestore'
-import { ascoltaOrdiniReparto, aggiornaStatoRiga } from '@/lib/firestore'
+import { ascoltaOrdiniReparto, aggiornaStatoRiga, type OrdineReparto } from '@/lib/firestore'
 import { haAccessoRapido } from '@/lib/accesso-rapido'
-import type { Ristorante, Ordine, CategoriaReparto } from '@/types'
+import type { Ristorante, CategoriaReparto } from '@/types'
 
 interface DashboardRepartoProps {
   reparto: CategoriaReparto
@@ -20,7 +20,7 @@ export default function DashboardReparto({ reparto, emoji, label }: DashboardRep
   const restaurantIdParam = searchParams.get('r')
 
   const [ristorante, setRistorante]   = useState<Ristorante | null>(null)
-  const [ordini, setOrdini]           = useState<Ordine[]>([])
+  const [ordini, setOrdini]           = useState<OrdineReparto[]>([])
   const [loadingDati, setLoadingDati] = useState(true)
   const [suono, setSuono]             = useState(true)
   const [ultimiOrdini, setUltimiOrdini] = useState<Set<string>>(new Set())
@@ -168,8 +168,8 @@ export default function DashboardReparto({ reparto, emoji, label }: DashboardRep
                   </span>
                 </div>
                 <div className="flex flex-col gap-2">
-                  {ordine.righe.map((riga, idx) => (
-                    <div key={idx}
+                  {ordine.righe.map(riga => (
+                    <div key={riga.indice}
                       className={`flex items-center justify-between p-3 rounded-xl ${
                         riga.stato === 'pronto' ? 'bg-green-800/40 opacity-60' : 'bg-gray-800'
                       }`}>
@@ -185,7 +185,7 @@ export default function DashboardReparto({ reparto, emoji, label }: DashboardRep
                         </div>
                       </div>
                       {riga.stato !== 'pronto' ? (
-                        <button onClick={() => segnaPronte(ordine.id, idx)}
+                        <button onClick={() => segnaPronte(ordine.id, riga.indice)}
                           className="bg-green-500 hover:bg-green-400 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition-colors">
                           ✓ Pronto
                         </button>
