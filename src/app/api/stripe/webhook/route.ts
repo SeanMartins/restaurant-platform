@@ -5,12 +5,17 @@ import Stripe from 'stripe'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
 import { getAdminApp } from '@/lib/firebase-admin'
-import { getStripe } from '@/lib/stripe'
+import { getStripe, PIANI } from '@/lib/stripe'
 import { inviaEmailBenvenuto } from '@/lib/resend'
 import type { PianoId } from '@/lib/stripe'
 import type { Ristorante, BillingRistorante, AppUser } from '@/types'
 
 const COLORI_DEFAULT = { primario: '#E63946', secondario: '#457B9D', sfondo: '#F1FAEE', testo: '#1D3557' }
+
+// abbonamenti/{subscriptionId} è un indice solo-server (nessuna regola client):
+// { restaurantId, managerUid, daVerificare? }. Serve per l'idempotenza del
+// provisioning (Stripe può consegnare lo stesso evento più volte) e per
+// ritrovare il ristorante dagli eventi della subscription.
 
 async function generaSlugUnivoco(adminDb: FirebaseFirestore.Firestore, base: string) {
   const radice = base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'ristorante'
@@ -22,6 +27,12 @@ async function generaSlugUnivoco(adminDb: FirebaseFirestore.Firestore, base: str
   return `${radice}-${Date.now()}`
 }
 
+function pianoValido(piano: unknown): PianoId {
+  if (typeof piano === 'string' && piano in PIANI) return piano as PianoId
+  console.error(`Piano "${piano}" non valido nei metadata Stripe: uso "base"`)
+  return 'base'
+}
+
 async function gestisciCheckoutCompletato(session: Stripe.Checkout.Session) {
   // Questo webhook gestisce solo gli abbonamenti alla piattaforma (mode: 'subscription').
   // I pagamenti dei singoli ordini ristorante (mode: 'payment') hanno il loro webhook dedicato
@@ -30,91 +41,154 @@ async function gestisciCheckoutCompletato(session: Stripe.Checkout.Session) {
     console.log(`Sessione Stripe con mode="${session.mode}", non è un abbonamento piattaforma: skip`)
     return
   }
+  // 'no_payment_required' = periodo di prova senza addebito iniziale
+  if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+    console.log(`Sessione ${session.id} non pagata (${session.payment_status}): provisioning rimandato`)
+    return
+  }
+  if (typeof session.subscription !== 'string') {
+    console.error(`Sessione ${session.id} senza subscription: skip`)
+    return
+  }
 
   const email = session.customer_details?.email || session.customer_email
   if (!email) throw new Error('Email cliente mancante nella sessione Stripe')
 
-  const piano = (session.metadata?.piano as PianoId) || 'base'
-  const subscriptionId = String(session.subscription)
+  const piano = pianoValido(session.metadata?.piano)
+  const subscriptionId = session.subscription
   const app = getAdminApp()
   const adminAuth = getAuth(app)
   const adminDb = getFirestore(app)
-
-  // Idempotenza: Stripe può ri-consegnare lo stesso evento più volte.
-  // Si verifica sulla subscription, non sull'email: un'email può già esistere
-  // per altri motivi (es. account superadmin) senza che sia un duplicato di questo checkout.
-  // abbonamenti/{subscriptionId} è un indice solo-server (nessuna regola client):
-  // i dati di fatturazione non stanno più sul documento ristorante.
   const abbonamentoRef = adminDb.collection('abbonamenti').doc(subscriptionId)
-  if ((await abbonamentoRef.get()).exists) {
+  const nomeCliente = session.customer_details?.name || email.split('@')[0]
+
+  // ── 1. Ristorante: creato una sola volta per subscription ──────────────
+  let restaurantId: string
+  const esistente = (await abbonamentoRef.get()).data()
+  if (esistente?.managerUid || esistente?.daVerificare) {
     console.log(`Provisioning già eseguito per la subscription ${subscriptionId}, skip`)
     return
   }
-
-  const utenteEsistente = await adminAuth.getUserByEmail(email).catch(() => null)
-  if (utenteEsistente) {
-    throw new Error(`Esiste già un account Firebase con l'email ${email}: provisioning automatico non eseguito, serve intervento manuale`)
-  }
-
-  const nomeCliente = session.customer_details?.name || email.split('@')[0]
-  const slug = await generaSlugUnivoco(adminDb, nomeCliente)
-
-  const adesso = new Date().toISOString()
-  const ristoranteRef = adminDb.collection('ristoranti').doc()
-  const ristorante: Ristorante = {
-    id: ristoranteRef.id,
-    nome: nomeCliente,
-    slug,
-    colori: COLORI_DEFAULT,
-    attivo: true,
-    onboardingCompletato: false,
-    createdAt: adesso,
-    updatedAt: adesso,
-  }
-  const billing: BillingRistorante = {
-    piano,
-    statoAbbonamento: 'attivo',
-    stripeCustomerId: String(session.customer),
-    stripeSubscriptionId: subscriptionId,
-    updatedAt: adesso,
-  }
-  // create() fallisce se l'abbonamento esiste già: due consegne concorrenti
-  // dello stesso evento non possono creare due ristoranti.
-  const batch = adminDb.batch()
-  batch.create(abbonamentoRef, { restaurantId: ristorante.id, createdAt: adesso })
-  batch.set(ristoranteRef, ristorante)
-  batch.set(ristoranteRef.collection('config').doc('billing'), billing)
-  try {
-    await batch.commit()
-  } catch (err: any) {
-    // 6 = ALREADY_EXISTS (gRPC): l'altra consegna ha già provisionato
-    if (err?.code === 6) {
-      console.log(`Provisioning già eseguito per la subscription ${subscriptionId}, skip`)
+  if (esistente) {
+    // Consegna precedente interrotta dopo la creazione del ristorante: riprende da lì
+    restaurantId = esistente.restaurantId
+  } else {
+    // L'email appartiene già a un account (es. un manager o il superadmin):
+    // non si crea niente, ma si registra il caso e si risponde 200, altrimenti
+    // Stripe ritenterebbe per giorni senza risultato.
+    if (await adminAuth.getUserByEmail(email).catch(() => null)) {
+      await abbonamentoRef.create({
+        restaurantId: null, daVerificare: 'email-gia-registrata', email, createdAt: new Date().toISOString(),
+      }).catch(() => {})
+      console.error(`PROVISIONING DA FARE A MANO: l'email ${email} ha già un account (subscription ${subscriptionId})`)
       return
     }
-    throw err
+
+    const adesso = new Date().toISOString()
+    const ristoranteRef = adminDb.collection('ristoranti').doc()
+    const ristorante: Ristorante = {
+      id: ristoranteRef.id,
+      nome: nomeCliente,
+      slug: await generaSlugUnivoco(adminDb, nomeCliente),
+      colori: COLORI_DEFAULT,
+      attivo: true,
+      onboardingCompletato: false,
+      createdAt: adesso,
+      updatedAt: adesso,
+    }
+    const billing: BillingRistorante = {
+      piano,
+      statoAbbonamento: 'attivo',
+      stripeCustomerId: String(session.customer),
+      stripeSubscriptionId: subscriptionId,
+      updatedAt: adesso,
+    }
+    // create() fallisce se l'abbonamento esiste già: due consegne concorrenti
+    // dello stesso evento non possono creare due ristoranti.
+    const batch = adminDb.batch()
+    batch.create(abbonamentoRef, { restaurantId: ristorante.id, managerUid: null, email, createdAt: adesso })
+    batch.set(ristoranteRef, ristorante)
+    batch.set(ristoranteRef.collection('config').doc('billing'), billing)
+    try {
+      await batch.commit()
+    } catch (err: any) {
+      // 6 = ALREADY_EXISTS (gRPC): l'altra consegna sta già provisionando
+      if (err?.code === 6) {
+        console.log(`Provisioning già in corso per la subscription ${subscriptionId}, skip`)
+        return
+      }
+      throw err
+    }
+    restaurantId = ristorante.id
   }
 
-  const userRecord = await adminAuth.createUser({ email, displayName: nomeCliente, emailVerified: true })
+  // ── 2. Manager del ristorante ───────────────────────────────────────────
+  let userRecord = await adminAuth.getUserByEmail(email).catch(() => null)
+  const nuovoUtente = !userRecord
+  if (userRecord) {
+    // Esiste solo se una consegna precedente l'ha già creato per questo ristorante
+    const profilo = (await adminDb.collection('utenti').doc(userRecord.uid).get()).data()
+    if (profilo && profilo.restaurantId !== restaurantId) {
+      await abbonamentoRef.update({ daVerificare: 'email-gia-registrata' })
+      console.error(`PROVISIONING DA FARE A MANO: l'email ${email} è di un altro account (ristorante ${restaurantId})`)
+      return
+    }
+  } else {
+    userRecord = await adminAuth.createUser({ email, displayName: nomeCliente, emailVerified: true })
+  }
   const utente: AppUser = {
     uid: userRecord.uid,
     email,
     role: 'manager',
-    restaurantId: ristorante.id,
+    restaurantId,
     displayName: nomeCliente,
     createdAt: new Date().toISOString(),
   }
   await adminDb.collection('utenti').doc(userRecord.uid).set(utente)
+  await abbonamentoRef.update({ managerUid: userRecord.uid })
 
-  const linkPassword = await adminAuth.generatePasswordResetLink(email, {
-    url: `${process.env.NEXT_PUBLIC_APP_URL}/login`,
-  })
+  // ── 3. Email di benvenuto con il link per impostare la password ─────────
+  if (!nuovoUtente) return
   try {
+    const linkPassword = await adminAuth.generatePasswordResetLink(email, {
+      url: `${process.env.NEXT_PUBLIC_APP_URL}/login`,
+    })
     await inviaEmailBenvenuto(email, linkPassword)
   } catch (err) {
-    // Il provisioning (ristorante + utente) è già completo: un errore email non deve farlo fallire
-    console.error(`Invio email benvenuto fallito per ${email}, link da inviare manualmente: ${linkPassword}`, err)
+    // Il provisioning è già completo: un errore email non deve farlo fallire.
+    // Il link NON va nei log (vale come la password): si rigenera con
+    // "password dimenticata" dalla pagina di login.
+    console.error(`Invio email benvenuto fallito per ${email}: far usare "password dimenticata" su /login`, err)
   }
+}
+
+// Stato dell'abbonamento in config/billing quando la subscription cambia
+// (rinnovo fallito, disdetta, cambio piano). Non sospende il ristorante:
+// quella decisione resta al superadmin (campo "attivo").
+const STATI_STRIPE: Record<string, BillingRistorante['statoAbbonamento']> = {
+  active: 'attivo', trialing: 'attivo',
+  past_due: 'scaduto', unpaid: 'scaduto', paused: 'scaduto',
+  canceled: 'cancellato', incomplete_expired: 'cancellato',
+}
+
+async function aggiornaStatoAbbonamento(subscription: Stripe.Subscription) {
+  const adminDb = getFirestore(getAdminApp())
+  const restaurantId = (await adminDb.collection('abbonamenti').doc(subscription.id).get()).data()?.restaurantId
+  if (!restaurantId) {
+    console.log(`Subscription ${subscription.id} non associata a un ristorante: skip`)
+    return
+  }
+  const statoAbbonamento = STATI_STRIPE[subscription.status]
+  if (!statoAbbonamento) return // 'incomplete': ancora in attesa del primo pagamento
+
+  const priceId = subscription.items.data[0]?.price.id
+  const piano = (Object.keys(PIANI) as PianoId[]).find(p => PIANI[p].priceId === priceId)
+  await adminDb.collection('ristoranti').doc(restaurantId).collection('config').doc('billing').set({
+    statoAbbonamento,
+    ...(piano ? { piano } : {}),
+    updatedAt: new Date().toISOString(),
+  }, { merge: true })
+  console.log(`Abbonamento ${subscription.id} (ristorante ${restaurantId}): ${subscription.status} → ${statoAbbonamento}`)
 }
 
 export async function POST(req: NextRequest) {
@@ -135,12 +209,19 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    if (event.type === 'checkout.session.completed') {
-      await gestisciCheckoutCompletato(event.data.object as Stripe.Checkout.Session)
+    switch (event.type) {
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded':
+        await gestisciCheckoutCompletato(event.data.object as Stripe.Checkout.Session)
+        break
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted':
+        await aggiornaStatoAbbonamento(event.data.object as Stripe.Subscription)
+        break
     }
     return NextResponse.json({ received: true })
-  } catch (err: any) {
-    console.error('ERRORE PROVISIONING:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (err) {
+    console.error('ERRORE WEBHOOK PIATTAFORMA:', err)
+    return NextResponse.json({ error: 'Errore interno' }, { status: 500 })
   }
 }
